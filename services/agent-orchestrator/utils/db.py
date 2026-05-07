@@ -7,11 +7,16 @@ _pool: asyncpg.Pool | None = None
 
 async def init_db() -> None:
     global _pool
+    dsn = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/aegis")
+    # Neon/Production requires SSL
+    ssl_context = "require" if "neon.tech" in dsn or os.getenv("NODE_ENV") == "production" else None
+    
     _pool = await asyncpg.create_pool(
-        dsn=os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/aegis"),
+        dsn=dsn,
         min_size=2,
         max_size=10,
         command_timeout=60,
+        ssl=ssl_context
     )
     print("✅ asyncpg pool ready")
 

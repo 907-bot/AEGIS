@@ -1,0 +1,22 @@
+{
+  "name": "aegis",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*", "shared/*"],
+  "scripts": {
+    "dev": "turbo run dev",
+    "infra": "docker-compose up -d postgres redis neo4j",
+    "orchestrator": "cd services/agent-orchestrator && venv\\Scripts\\activate && python main.py",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

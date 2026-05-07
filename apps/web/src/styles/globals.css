@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: dark; }
+  body {
+    @apply bg-surface text-slate-100 font-sans antialiased;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(14,165,233,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(99,102,241,0.06) 0%, transparent 50%);
+    min-height: 100vh;
+  }
+  * { @apply border-slate-700; }
+  ::selection { @apply bg-aegis-600/40 text-white; }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-50 border border-slate-700/60 rounded-xl backdrop-blur-sm;
+  }
+  .card-hover {
+    @apply card transition-all duration-200 hover:border-aegis-500/50 hover:shadow-lg hover:shadow-aegis-500/10;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-success { @apply badge bg-emerald-500/20 text-emerald-400 border border-emerald-500/30; }
+  .badge-warning { @apply badge bg-amber-500/20 text-amber-400 border border-amber-500/30; }
+  .badge-danger  { @apply badge bg-red-500/20 text-red-400 border border-red-500/30; }
+  .badge-info    { @apply badge bg-aegis-500/20 text-aegis-400 border border-aegis-500/30; }
+  .badge-neutral { @apply badge bg-slate-700/50 text-slate-300 border border-slate-600/50; }
+
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-aegis-600 hover:bg-aegis-500 text-white shadow-lg shadow-aegis-500/25;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-50 hover:bg-surface-100 text-slate-200 border border-slate-700;
+  }
+  .btn-ghost {
+    @apply btn hover:bg-surface-50 text-slate-400 hover:text-slate-200;
+  }
+  .input {
+    @apply w-full px-4 py-3 bg-surface-50 border border-slate-700 rounded-lg text-slate-100
+           placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aegis-500/50
+           focus:border-aegis-500 transition-colors;
+  }
+  .score-ring {
+    @apply relative inline-flex items-center justify-center rounded-full;
+  }
+  .glow-blue  { box-shadow: 0 0 20px rgba(14,165,233,0.4); }
+  .glow-green { box-shadow: 0 0 20px rgba(16,185,129,0.4); }
+  .glow-red   { box-shadow: 0 0 20px rgba(239,68,68,0.4); }
+  .grid-dots  {
+    background-image: radial-gradient(circle, rgba(100,116,139,0.15) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}

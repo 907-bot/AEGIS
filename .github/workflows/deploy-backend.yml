@@ -1,0 +1,100 @@
+name: Deploy Backend → Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'services/agent-orchestrator/**'
+      - 'services/go-gateway/**'
+      - 'infrastructure/render.yaml'
+  workflow_dispatch:
+
+jobs:
+  test-api:
+    name: Test Node.js API
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: aegis_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        options: --health-cmd "redis-cli ping" --health-interval 5s
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm', cache-dependency-path: 'apps/api/package-lock.json' }
+      - name: Install
+        working-directory: apps/api
+        run: npm ci
+      - name: Lint
+        working-directory: apps/api
+        run: npm run lint || true
+      - name: Build
+        working-directory: apps/api
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/aegis_test
+          REDIS_URL: redis://localhost:6379
+
+  test-python:
+    name: Test Python Orchestrator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install
+        working-directory: services/agent-orchestrator
+        run: pip install -r requirements.txt --quiet
+      - name: Syntax check
+        working-directory: services/agent-orchestrator
+        run: python -m py_compile main.py && echo "✅ Syntax OK"
+
+  test-go:
+    name: Test Go Gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - name: Build
+        working-directory: services/go-gateway
+        run: go build ./... && echo "✅ Go build OK"
+      - name: Vet
+        working-directory: services/go-gateway
+        run: go vet ./...
+
+  deploy-render:
+    name: Trigger Render Deploy
+    needs: [test-api, test-python, test-go]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy API to Render
+        if: secrets.RENDER_DEPLOY_HOOK_API != ''
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
+
+      - name: Deploy Orchestrator to Render
+        if: secrets.RENDER_DEPLOY_HOOK_ORCHESTRATOR != ''
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_ORCHESTRATOR }}"
+
+      - name: Deploy Gateway to Render
+        if: secrets.RENDER_DEPLOY_HOOK_GATEWAY != ''
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_GATEWAY }}"
+
+      - name: Notify success
+        run: |
+          echo "🚀 AEGIS backend deployed!"
+          echo "  API:          via Render"
+          echo "  Orchestrator: via Render"
+          echo "  Go Gateway:   via Render"

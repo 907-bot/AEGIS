@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AEGIS — Render.com Deployment Configuration
+# Backend stack: Node.js API + Python Orchestrator + Go Gateway
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Node.js API (Fastify) ─────────────────────────────────────────────────
+  - type: web
+    name: aegis-api
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: apps/api
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /health/live
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aegis-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: aegis-redis
+          type: redis
+          property: connectionString
+      - key: NEO4J_URL
+        sync: false   # Set manually in Render dashboard
+      - key: NEO4J_USER
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: AGENT_ORCHESTRATOR_URL
+        fromService:
+          name: aegis-orchestrator
+          type: web
+          property: host
+          envVarKey: AGENT_ORCHESTRATOR_URL
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+
+  # ─── Python Agent Orchestrator (FastAPI) ───────────────────────────────────
+  - type: web
+    name: aegis-orchestrator
+    runtime: python
+    region: oregon
+    plan: starter
+    rootDir: services/agent-orchestrator
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aegis-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: aegis-redis
+          type: redis
+          property: connectionString
+      - key: NEO4J_URL
+        sync: false
+      - key: NEO4J_USER
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SCRAPING_CONCURRENCY
+        value: "2"
+
+  # ─── Go Gateway ────────────────────────────────────────────────────────────
+  - type: web
+    name: aegis-go-gateway
+    runtime: go
+    region: oregon
+    plan: starter
+    rootDir: services/go-gateway
+    buildCommand: go build -o gateway ./cmd/server
+    startCommand: ./gateway
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: GATEWAY_PORT
+        value: "8080"
+      - key: API_URL
+        fromService:
+          name: aegis-api
+          type: web
+          property: host
+          envVarKey: API_URL
+      - key: ORCHESTRATOR_URL
+        fromService:
+          name: aegis-orchestrator
+          type: web
+          property: host
+          envVarKey: ORCHESTRATOR_URL
+      - key: REDIS_URL
+        fromService:
+          name: aegis-redis
+          type: redis
+          property: connectionString
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  - type: redis
+    name: aegis-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────
+  - name: aegis-postgres
+    databaseName: aegis
+    user: aegis_user
+    region: oregon
+    plan: starter

@@ -40,7 +40,6 @@ services:
           name: aegis-orchestrator
           type: web
           property: host
-          envVarKey: AGENT_ORCHESTRATOR_URL
       - key: OPENAI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
@@ -103,13 +102,11 @@ services:
           name: aegis-api
           type: web
           property: host
-          envVarKey: API_URL
       - key: ORCHESTRATOR_URL
         fromService:
           name: aegis-orchestrator
           type: web
           property: host
-          envVarKey: ORCHESTRATOR_URL
       - key: REDIS_URL
         fromService:
           name: aegis-redis
@@ -122,6 +119,7 @@ services:
     region: oregon
     plan: starter
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: [] # Allows all internal Render services by default
 
 databases:
   # ─── PostgreSQL ──────────────────────────────────────────────────────────

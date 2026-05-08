@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Zap, Shield, Brain, ChevronRight, ArrowRight, Globe, BarChart3, Network } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -53,8 +54,8 @@ export default function HomePage() {
           <span className="badge badge-info">v1.0</span>
         </div>
         <div className="flex items-center gap-3">
-          <a href="/dashboard" className="btn-ghost text-sm">Dashboard</a>
-          <a href="/war-room" className="btn-secondary text-sm">War Room</a>
+          <Link href="/dashboard" className="btn-ghost text-sm">Dashboard</Link>
+          <Link href="/war-room" className="btn-secondary text-sm">War Room</Link>
         </div>
       </nav>
 

@@ -2,8 +2,8 @@
 const nextConfig = {
   output: 'export',           // Static export for GitHub Pages
   trailingSlash: true,
-  basePath: '/AEGIS',      // Required for GitHub Pages subfolder deployment
-  assetPrefix: '/AEGIS/',  // Required for CSS/JS assets on GitHub Pages
+  basePath: '/AEGIS',
+  assetPrefix: '/AEGIS',
   images: { unoptimized: true },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,

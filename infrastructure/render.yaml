@@ -90,7 +90,7 @@ services:
     region: oregon
     plan: starter
     rootDir: services/go-gateway
-    buildCommand: go build -o gateway ./cmd/server
+    buildCommand: go mod tidy && go build -o gateway ./cmd/server
     startCommand: ./gateway
     healthCheckPath: /health
     autoDeploy: true

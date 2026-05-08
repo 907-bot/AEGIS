@@ -51,7 +51,7 @@ type InvestigationData = {
 
 export default function InvestigationClient() {
   const searchParams = useSearchParams();
-  const id = searchParams.get('id');
+  const id = searchParams.get('id') || '';
   const [inv, setInv]           = useState<InvestigationData | null>(null);
   const [events, setEvents]     = useState<AgentEvent[]>([]);
   const [activeTab, setActiveTab] = useState<'overview'|'debate'|'graph'|'simulate'>('overview');
@@ -256,12 +256,12 @@ export default function InvestigationClient() {
                   )}
                   {activeTab === 'graph' && (
                     <motion.div key="graph" initial={{ opacity:0,y:8 }} animate={{ opacity:1,y:0 }} exit={{ opacity:0 }}>
-                      <KnowledgeGraph data={graphData} investigationId={id} />
+                      <KnowledgeGraph data={graphData} investigationId={id || ''} />
                     </motion.div>
                   )}
                   {activeTab === 'simulate' && (
                     <motion.div key="simulate" initial={{ opacity:0,y:8 }} animate={{ opacity:1,y:0 }} exit={{ opacity:0 }}>
-                      <ScenarioSimulator investigationId={id} baseScores={{
+                      <ScenarioSimulator investigationId={id || ''} baseScores={{
                         vitality: inv.vitality_score ?? 50,
                         moat:     inv.moat_score ?? 50,
                         risk:     inv.risk_score ?? 50,

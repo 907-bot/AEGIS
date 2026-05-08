@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
@@ -50,7 +50,8 @@ type InvestigationData = {
 };
 
 export default function InvestigationClient() {
-  const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id');
   const [inv, setInv]           = useState<InvestigationData | null>(null);
   const [events, setEvents]     = useState<AgentEvent[]>([]);
   const [activeTab, setActiveTab] = useState<'overview'|'debate'|'graph'|'simulate'>('overview');

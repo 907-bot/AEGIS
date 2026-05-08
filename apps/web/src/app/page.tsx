@@ -35,7 +35,7 @@ export default function HomePage() {
     try {
       const res = await api.post('/api/v1/investigations', { url: url.trim(), type });
       toast.success('Investigation launched! Deploying agents...', { icon: '🚀' });
-      router.push(`/investigation/${res.data.investigationId}`);
+      router.push(`/investigation?id=${res.data.investigationId}`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to start investigation');
       setLoading(false);

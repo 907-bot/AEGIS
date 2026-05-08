@@ -146,7 +146,7 @@ export default function DashboardPage() {
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.03 }}
                     className="border-b border-slate-800/50 hover:bg-surface-50/50 transition-colors cursor-pointer"
-                    onClick={() => window.location.href = `/investigation/${inv.id}`}
+                    onClick={() => window.location.href = `/investigation?id=${inv.id}`}
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-200">{inv.company_name || '—'}</div>

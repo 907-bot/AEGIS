@@ -42,7 +42,9 @@ jobs:
         run: npm run build -- --filter=@aegis/web
 
       - name: Add .nojekyll
-        run: touch apps/web/out/AEGIS/.nojekyll
+        run: |
+          mkdir -p apps/web/out/AEGIS
+          touch apps/web/out/AEGIS/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

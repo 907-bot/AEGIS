@@ -15,8 +15,11 @@ import structlog
 import uvicorn
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv("../../.env")
+# Load environment variables
+if os.getenv("PYTHON_ENV") != "production":
+    # Try local service .env first, then root .env
+    load_dotenv(".env")
+    load_dotenv("../../.env")
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

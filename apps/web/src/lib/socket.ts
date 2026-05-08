@@ -5,7 +5,10 @@ let socket: Socket | null = null;
 export function createSocket(): Socket {
   if (socket?.connected) return socket;
 
-  const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000';
+  let WS_URL = process.env.NEXT_PUBLIC_WS_URL || '';
+  if (!WS_URL || WS_URL.includes('aegis-api')) {
+    WS_URL = 'wss://aegis-go-gateway.onrender.com';
+  }
 
   socket = io(WS_URL, {
     transports: ['websocket', 'polling'],

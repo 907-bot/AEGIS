@@ -21,8 +21,8 @@ langchain-anthropic==0.1.13
 playwright==1.44.0
 beautifulsoup4==4.12.3
 lxml==5.2.1
-robotparser==0.0.1
 cachetools==5.3.3
+robotparser==0.0.1
 
 # Database
 asyncpg==0.29.0

@@ -8,7 +8,6 @@ import json
 import uuid
 from typing import Any, Optional
 
-import numpy as np
 import structlog
 
 from utils.db import get_db_pool

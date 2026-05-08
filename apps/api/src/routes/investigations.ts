@@ -14,49 +14,62 @@ const CreateSchema = z.object({
 export async function investigationRoutes(fastify: FastifyInstance) {
   // ── POST /api/v1/investigations ─────────────────────────────────────────
   fastify.post('/', async (request, reply) => {
-    const body = CreateSchema.safeParse(request.body);
-    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    try {
+      const body = CreateSchema.safeParse(request.body);
+      if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
 
-    const { url, type, strategyOverrides } = body.data;
-    const strategy_config = strategyOverrides || {};
-    const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
+      const { url, type, strategyOverrides } = body.data;
+      const strategy_config = strategyOverrides || {};
+      const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
 
-    const id = uuidv4();
+      const id = uuidv4();
 
-    await withTransaction(async (client) => {
-      // Upsert demo user
-      await client.query(
-        `INSERT INTO users(id, email, name) VALUES($1,$2,$3)
-         ON CONFLICT (email) DO NOTHING`,
-        [userId, `${userId}@aegis.ai`, userId]
-      );
+      await withTransaction(async (client) => {
+        // Upsert demo user
+        await client.query(
+          `INSERT INTO users(id, email, name) VALUES($1,$2,$3)
+           ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
+          [userId, 'demo@aegis.ai', 'Demo User']
+        );
 
-      await client.query(
-        `INSERT INTO investigations(id, user_id, target_url, investigation_type, strategy_config, status)
-         VALUES($1,$2,$3,$4,$5,'queued')`,
-        [id, userId, url, type, JSON.stringify(strategyOverrides || {})]
-      );
-    });
+        await client.query(
+          `INSERT INTO investigations(id, user_id, target_url, investigation_type, strategy_config, status)
+           VALUES($1,$2,$3,$4,$5,'queued')`,
+          [id, userId, url, type, JSON.stringify(strategy_config)]
+        );
+      });
 
-    // Fire-and-forget to Python orchestrator
-    enqueueInvestigation({ investigationId: id, url, type, userId }).catch(console.error);
+      // Fire-and-forget to Python orchestrator
+      enqueueInvestigation({ investigationId: id, url, type, userId }).catch(err => {
+        fastify.log.error(`Redis enqueue failed: ${err.message}`);
+      });
 
-    // Also directly call orchestrator
-    axios.post(`${process.env.AGENT_ORCHESTRATOR_URL || 'http://localhost:8001'}/investigate`, {
-      investigation_id: id, url, type, user_id: userId,
-    }).catch((err) => fastify.log.warn(`Orchestrator ping failed: ${err.message}`));
+      // Also directly call orchestrator
+      const orchestratorUrl = process.env.AGENT_ORCHESTRATOR_URL || 'http://localhost:8001';
+      axios.post(`${orchestratorUrl}/investigate`, {
+        investigation_id: id, url, type, user_id: userId,
+      }).catch((err) => {
+        fastify.log.warn(`Orchestrator ping failed at ${orchestratorUrl}: ${err.message}`);
+      });
 
-    return reply.status(201).send({
-      investigationId: id,
-      status: 'queued',
-      estimatedDurationSeconds: 240,
-      wsChannel: `/investigation/${id}/events`,
-    });
+      return reply.status(201).send({
+        investigationId: id,
+        status: 'queued',
+        wsChannel: `/investigation/${id}/events`,
+      });
+    } catch (err: any) {
+      fastify.log.error(`INVESTIGATION_FAILURE: ${err.message}`);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      });
+    }
   });
 
   // ── GET /api/v1/investigations ──────────────────────────────────────────
   fastify.get('/', async (request, reply) => {
-    const userId = (request.headers['x-user-id'] as string) || 'demo-user';
+    const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
     const rows = await query(
       `SELECT id, target_url, company_name, investigation_type, status,
               confidence_score, vitality_score, moat_score, risk_score,

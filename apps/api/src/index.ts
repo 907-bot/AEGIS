@@ -82,6 +82,16 @@ async function buildApp() {
   await setupDatabase();
   await setupRedis();
 
+  // ─── Welcome Route ─────────────────────────────────────────────────────
+  fastify.get('/', async () => {
+    return { 
+      service: 'AEGIS API', 
+      version: '1.0.0', 
+      status: 'online',
+      documentation: '/docs' 
+    };
+  });
+
   // ─── Routes ───────────────────────────────────────────────────────────
   await fastify.register(healthRoutes, { prefix: '/health' });
   await fastify.register(investigationRoutes, { prefix: '/api/v1/investigations' });

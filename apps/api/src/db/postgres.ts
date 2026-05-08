@@ -3,11 +3,16 @@ import { Pool, PoolClient } from 'pg';
 let pool: Pool;
 
 export async function setupDatabase(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    console.error('❌ DATABASE_URL is not defined in environment variables');
+    throw new Error('DATABASE_URL is missing');
+  }
+
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 10000,
     ssl: process.env.DATABASE_URL?.includes('neon.tech') || process.env.NODE_ENV === 'production' 
       ? { rejectUnauthorized: false } 
       : false

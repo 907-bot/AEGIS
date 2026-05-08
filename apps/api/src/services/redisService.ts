@@ -6,15 +6,25 @@ export let redisSubscriber: Redis;
 export async function setupRedis(): Promise<void> {
   const url = process.env.REDIS_URL || 'redis://localhost:6379';
 
-  redisClient = new Redis(url, {
-    maxRetriesPerRequest: 3,
-    lazyConnect: false,
-  });
+  try {
+    redisClient = new Redis(url, {
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+      connectTimeout: 5000,
+    });
 
-  redisSubscriber = new Redis(url, { lazyConnect: false });
+    redisSubscriber = new Redis(url, { 
+      lazyConnect: true,
+      connectTimeout: 5000,
+    });
 
-  redisClient.on('connect', () => console.log('✅ Redis connected'));
-  redisClient.on('error', (err) => console.error('❌ Redis error:', err));
+    redisClient.on('connect', () => console.log('✅ Redis connected'));
+    redisClient.on('error', (err) => {
+      console.warn('⚠️ Redis Connection Warning (App will continue):', err.message);
+    });
+  } catch (err) {
+    console.error('❌ Redis setup failed:', err);
+  }
 }
 
 // ─── Job Queue Helpers ────────────────────────────────────────────────────────

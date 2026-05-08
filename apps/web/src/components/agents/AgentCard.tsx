@@ -56,7 +56,7 @@ export function AgentCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {event?.confidence > 0 && (
+          {event && event.confidence > 0 && (
             <span className="text-xs text-slate-500 font-mono">
               {(event.confidence * 100).toFixed(0)}%
             </span>
@@ -73,7 +73,7 @@ export function AgentCard({
       )}
 
       {/* Evidence count on completion */}
-      {status === 'completed' && event?.evidenceCount > 0 && (
+      {status === 'completed' && event && event.evidenceCount > 0 && (
         <div className="mt-1.5 flex gap-3 text-xs text-slate-600">
           <span>{event.evidenceCount} signals</span>
           {event.latencyMs > 0 && <span>{(event.latencyMs/1000).toFixed(1)}s</span>}

@@ -16,10 +16,17 @@ import uvicorn
 from dotenv import load_dotenv
 
 # Load environment variables
-if os.getenv("PYTHON_ENV") != "production":
-    # Try local service .env first, then root .env
+python_env = os.getenv("PYTHON_ENV", "development")
+if python_env != "production":
     load_dotenv(".env")
     load_dotenv("../../.env")
+
+# Debug Environment (Safe)
+redis_url = os.getenv("REDIS_URL", "not set")
+masked_redis = redis_url.split("@")[-1] if "@" in redis_url else redis_url
+print(f"🔍 DEBUG: PYTHON_ENV='{python_env}'")
+print(f"🔍 DEBUG: REDIS_URL='{masked_redis}'")
+
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

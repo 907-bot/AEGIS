@@ -81,16 +81,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy API to Render
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_API != '' }}
-        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
+        if: env.HOOK != ''
+        run: curl -X POST "$HOOK"
 
       - name: Deploy Orchestrator to Render
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_ORCHESTRATOR != '' }}
-        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_ORCHESTRATOR }}"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_ORCHESTRATOR }}
+        if: env.HOOK != ''
+        run: curl -X POST "$HOOK"
 
       - name: Deploy Gateway to Render
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_GATEWAY != '' }}
-        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_GATEWAY }}"
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_GATEWAY }}
+        if: env.HOOK != ''
+        run: curl -X POST "$HOOK"
 
       - name: Notify success
         run: |

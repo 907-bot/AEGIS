@@ -142,6 +142,9 @@ func (s *Server) setupRoutes() {
 	s.router.Use(s.rateLimitMiddleware)
 	s.router.Use(s.corsMiddleware)
 
+	// Root / Welcome
+	s.router.HandleFunc("/", s.handleRoot).Methods("GET")
+
 	// Health
 	s.router.HandleFunc("/health", s.handleHealth).Methods("GET")
 	s.router.HandleFunc("/health/aggregate", s.handleAggregateHealth).Methods("GET")
@@ -157,6 +160,10 @@ func (s *Server) setupRoutes() {
 
 	// Proxy: Orchestrator (internal only)
 	s.router.PathPrefix("/internal/orchestrator/").HandlerFunc(s.handleOrchestratorProxy)
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/health", http.StatusTemporaryRedirect)
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────

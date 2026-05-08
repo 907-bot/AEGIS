@@ -3,7 +3,6 @@ const nextConfig = {
   output: 'export',           // Static export for GitHub Pages
   trailingSlash: true,
   basePath: '/AEGIS',
-  assetPrefix: '/AEGIS',
   images: { unoptimized: true },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,

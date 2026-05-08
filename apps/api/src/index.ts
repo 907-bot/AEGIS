@@ -43,7 +43,7 @@ async function buildApp() {
   await fastify.register(cors, {
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-ID'],
   });
 
   await fastify.register(rateLimit, {

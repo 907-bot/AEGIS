@@ -172,3 +172,6 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER users_updated_at
   BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+- -    % % %  D e f a u l t   D a t a    % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
+ I N S E R T   I N T O   u s e r s   ( i d ,   e m a i l ,   n a m e ,   t i e r )   V A L U E S   ( ' 0 0 0 0 0 0 0 0 - 0 0 0 0 - 0 0 0 0 - 0 0 0 0 - 0 0 0 0 0 0 0 0 0 0 0 0 ' ,   ' d e m o @ a e g i s . a i ' ,   ' D e m o   U s e r ' ,   ' s t a r t e r ' )   O N   C O N F L I C T   ( i d )   D O   N O T H I N G ;  
+ 

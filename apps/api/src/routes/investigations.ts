@@ -18,6 +18,7 @@ export async function investigationRoutes(fastify: FastifyInstance) {
     if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
 
     const { url, type, strategyOverrides } = body.data;
+    const strategy_config = strategyOverrides || {};
     const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
 
     const id = uuidv4();

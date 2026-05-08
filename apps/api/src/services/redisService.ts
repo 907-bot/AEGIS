@@ -8,7 +8,6 @@ export async function setupRedis(): Promise<void> {
 
   redisClient = new Redis(url, {
     maxRetriesPerRequest: 3,
-    retryDelayOnFailover: 100,
     lazyConnect: false,
   });
 

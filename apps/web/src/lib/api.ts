@@ -7,7 +7,7 @@ export const api = axios.create({
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
-    'X-User-ID': 'demo-user',
+    'X-User-ID': '00000000-0000-0000-0000-000000000000',
   },
 });
 

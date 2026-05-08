@@ -10,8 +10,14 @@ anthropic==0.28.0
 google-generativeai==0.5.2
 tiktoken==0.7.0
 
-
 # Agent Frameworks
+# Pinning sub-dependencies to avoid resolution hell
+proto-plus==1.27.1
+pyasn1-modules==0.4.0
+propcache==0.3.2
+yarl>=1.9.4
+multidict>=6.0.5
+
 crewai==0.36.0
 langchain==0.2.1
 langchain-openai==0.1.8
@@ -22,7 +28,6 @@ playwright==1.44.0
 beautifulsoup4==4.12.3
 lxml==5.2.1
 cachetools==5.3.3
-# robotparser is built-in (urllib.robotparser)
 
 # Database
 asyncpg==0.29.0
@@ -30,7 +35,6 @@ redis[asyncio]==5.0.4
 neo4j==5.20.0
 sqlalchemy[asyncio]==2.0.30
 alembic==1.13.1
-
 
 # Async & Infrastructure
 celery[redis]==5.4.0

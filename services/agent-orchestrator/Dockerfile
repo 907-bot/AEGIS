@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y \
 # Set Playwright browser path
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Python deps
+# Python deps using uv for faster & more reliable resolution
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir --prefer-binary -r requirements.txt
+RUN pip install uv && uv pip install --system --no-cache -r requirements.txt
 
 # Install Playwright browsers to the shared path
 RUN playwright install chromium

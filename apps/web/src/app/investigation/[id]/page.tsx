@@ -49,6 +49,10 @@ type InvestigationData = {
   recommendations?: any[]; comparable_companies?: string[];
 };
 
+export function generateStaticParams() {
+  return [];
+}
+
 export default function InvestigationPage() {
   const { id } = useParams<{ id: string }>();
   const [inv, setInv]           = useState<InvestigationData | null>(null);

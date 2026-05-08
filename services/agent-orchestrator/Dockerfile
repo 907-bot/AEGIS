@@ -28,5 +28,6 @@ COPY . .
 RUN useradd -m aegis && chown -R aegis /app && mkdir -p /ms-playwright && chown -R aegis /ms-playwright
 USER aegis
 
-EXPOSE 8001
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+ENV PORT=8001
+EXPOSE ${PORT}
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

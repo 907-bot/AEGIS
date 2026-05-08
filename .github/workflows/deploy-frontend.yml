@@ -42,9 +42,15 @@ jobs:
         run: npm run build -- --filter=@aegis/web
 
       - name: Add .nojekyll
+        run: touch apps/web/out/.nojekyll
+
+      - name: Flatten structure
         run: |
-          mkdir -p apps/web/out/AEGIS
-          touch apps/web/out/AEGIS/.nojekyll
+          cd apps/web/out
+          if [ -d "AEGIS" ]; then
+            cp -r AEGIS/* .
+            rm -rf AEGIS
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -52,7 +58,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/web/out/AEGIS
+          path: apps/web/out
 
   deploy:
     needs: build

@@ -50,14 +50,13 @@ services:
   # ─── Python Agent Orchestrator (FastAPI) ───────────────────────────────────
   - type: web
     name: aegis-orchestrator
-    runtime: python
+    runtime: docker
     region: oregon
     plan: starter
     rootDir: services/agent-orchestrator
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && playwright install chromium
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
     healthCheckPath: /health
     autoDeploy: true
+    overlappingDeploys: false
     envVars:
       - key: PYTHON_ENV
         value: production

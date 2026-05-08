@@ -1,10 +1,10 @@
+import InvestigationClient from './InvestigationClient';
+
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
-  return [];
+  return [{ id: 'default' }];
 }
-
-import InvestigationClient from './InvestigationClient';
 
 export default function Page() {
   return <InvestigationClient />;

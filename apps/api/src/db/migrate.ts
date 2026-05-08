@@ -3,7 +3,7 @@ import path from 'path';
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../../../../.env') });
 
 async function migrate() {
   const connectionString = process.env.DATABASE_URL;

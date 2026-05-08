@@ -41,16 +41,7 @@ CREATE TABLE IF NOT EXISTS investigations (
   total_cost_usd       DECIMAL(10,4),
   total_tokens         INTEGER,
   duration_ms          INTEGER
-) PARTITION BY RANGE (created_at);
-
--- Partitions (monthly)
-CREATE TABLE IF NOT EXISTS investigations_2026_04 PARTITION OF investigations
-  FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
-CREATE TABLE IF NOT EXISTS investigations_2026_05 PARTITION OF investigations
-  FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
-CREATE TABLE IF NOT EXISTS investigations_2026_06 PARTITION OF investigations
-  FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
-CREATE TABLE IF NOT EXISTS investigations_default PARTITION OF investigations DEFAULT;
+);
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_investigations_user    ON investigations(user_id);

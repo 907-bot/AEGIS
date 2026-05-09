@@ -51,6 +51,8 @@ class AgentResult:
 class EthicalScraper:
     """Playwright-based ethical scraper with robots.txt + rate limiting."""
 
+    _semaphore = asyncio.Semaphore(2)  # Limit concurrent browser launches
+
     def __init__(self):
         self.robots_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
         self.rate_limit_delay = 2.0  # seconds between requests per domain
@@ -58,53 +60,59 @@ class EthicalScraper:
         self.user_agent = "AegisBot/1.0 (Research Intelligence; contact@aegis.ai)"
 
     async def scrape(self, url: str) -> Optional[dict]:
-        domain = urlparse(url).netloc
+        async with self._semaphore:
+            domain = urlparse(url).netloc
 
-        # Robots.txt check
-        if not await self._check_robots(domain, url):
-            log.warning("blocked_by_robots", url=url)
-            return None
+            # Robots.txt check
+            if not await self._check_robots(domain, url):
+                log.warning("blocked_by_robots", url=url)
+                return None
 
-        # Rate limiting per domain
-        elapsed = time.time() - self._domain_last_req.get(domain, 0)
-        if elapsed < self.rate_limit_delay:
-            await asyncio.sleep(self.rate_limit_delay - elapsed)
-        self._domain_last_req[domain] = time.time()
+            # Rate limiting per domain
+            elapsed = time.time() - self._domain_last_req.get(domain, 0)
+            if elapsed < self.rate_limit_delay:
+                await asyncio.sleep(self.rate_limit_delay - elapsed)
+            self._domain_last_req[domain] = time.time()
 
-        try:
-            from playwright.async_api import async_playwright
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True)
-                ctx = await browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={"width": 1920, "height": 1080},
-                )
-                # Block heavy assets for speed
-                await ctx.route(
-                    "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,mp3}",
-                    lambda r: r.abort()
-                )
-                page = await ctx.new_page()
-                resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                if resp and resp.status >= 400:
-                    return None
+            try:
+                from playwright.async_api import async_playwright
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-dev-shm-usage"]
+                    )
+                    ctx = await browser.new_context(
+                        user_agent=self.user_agent,
+                        viewport={"width": 1920, "height": 1080},
+                    )
+                    # Block heavy assets for speed
+                    await ctx.route(
+                        "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,mp3}",
+                        lambda r: r.abort()
+                    )
+                    page = await ctx.new_page()
+                    # Increase timeout and use a more reliable wait_until
+                    resp = await page.goto(url, wait_until="networkidle", timeout=45000)
+                    if resp and resp.status >= 400:
+                        await browser.close()
+                        return None
 
-                html  = await page.content()
-                text  = await page.inner_text("body")
-                title = await page.title()
-                await browser.close()
+                    html  = await page.content()
+                    text  = await page.inner_text("body")
+                    title = await page.title()
+                    await browser.close()
 
-                return {
-                    "url":         url,
-                    "html":        html[:50000],  # cap size
-                    "text":        text[:20000],
-                    "title":       title,
-                    "scraped_at":  datetime.utcnow().isoformat(),
-                    "status_code": resp.status if resp else 200,
-                }
-        except Exception as e:
-            log.error("scraping_failed", url=url, error=str(e))
-            return None
+                    return {
+                        "url":         url,
+                        "html":        html[:50000],  # cap size
+                        "text":        text[:20000],
+                        "title":       title,
+                        "scraped_at":  datetime.utcnow().isoformat(),
+                        "status_code": resp.status if resp else 200,
+                    }
+            except Exception as e:
+                log.error("scraping_failed", url=url, error=str(e))
+                return None
 
     async def _check_robots(self, domain: str, url: str) -> bool:
         if domain in self.robots_cache:

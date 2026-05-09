@@ -59,9 +59,18 @@ class EthicalScraper:
         self._domain_last_req: dict[str, float] = {}
         self.user_agent = "AegisBot/1.0 (Research Intelligence; contact@aegis.ai)"
 
-    async def scrape(self, url: str) -> Optional[dict]:
+    async def scrape(self, url: str, investigation_id: Optional[str] = None) -> Optional[dict]:
         async with self._semaphore:
             domain = urlparse(url).netloc
+            if investigation_id:
+                await publish_event(investigation_id, {
+                    "type": "agent_event",
+                    "investigationId": investigation_id,
+                    "agentType": "system",
+                    "status": "scraping",
+                    "currentAction": f"Launching browser for {domain}...",
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
 
             # Robots.txt check
             if not await self._check_robots(domain, url):

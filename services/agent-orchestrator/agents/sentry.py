@@ -18,7 +18,7 @@ from company websites. Extract ALL signals with high precision. Return ONLY vali
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         # Scrape the target
         await self._emit_event(investigation_id, "in_progress", "Scraping target URL...")
-        content = await self.scraper.scrape(url)
+        content = await self.scraper.scrape(url, investigation_id)
 
         if not content:
             return AgentResult(agent_type=self.name, status="failed",

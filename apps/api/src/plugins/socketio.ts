@@ -2,25 +2,28 @@ import { Server, Socket } from 'socket.io';
 import type Redis from 'ioredis';
 
 export async function setupSocketIO(io: Server, redis: Redis): Promise<void> {
-  // Subscribe to all investigation events
   const sub = redis.duplicate();
+  
+  sub.on('connect', () => console.log('📡 Redis Subscriber connected'));
+  sub.on('error', (err) => console.error('📡 Redis Subscriber error:', err));
 
   sub.psubscribe('investigation:*:events', (err) => {
-    if (err) console.error('Redis psubscribe error:', err);
-    else console.log('✅ Socket.IO subscribed to Redis channels');
+    if (err) console.error('❌ Redis psubscribe error:', err);
+    else console.log('✅ Socket.IO subscribed to pattern: investigation:*:events');
   });
 
-  sub.on('pmessage', (_pattern, channel, message) => {
-    // channel = "investigation:{id}:events"
+  sub.on('pmessage', (pattern, channel, message) => {
     const parts = channel.split(':');
     const investigationId = parts[1];
     try {
       const data = JSON.parse(message);
-      // Broadcast to room for this investigation
+      // Broadcast to specific room
       io.to(`investigation:${investigationId}`).emit('agent:event', data);
       // Also broadcast to global war-room
       io.to('war-room').emit('agent:event', { investigationId, ...data });
-    } catch (_) { /* ignore */ }
+    } catch (err) {
+      console.error('❌ Failed to parse Redis message:', err);
+    }
   });
 
   io.on('connection', (socket: Socket) => {

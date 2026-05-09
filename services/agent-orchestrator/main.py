@@ -206,7 +206,7 @@ async def _run_investigation(req: InvestigationRequest):
             else:
                 valid_results.append(result)
 
-        await _update_status("running", 45, "knowledge_graph")
+        await _update_status("running", 25, "knowledge_graph")
 
         # ── Phase 2: Knowledge Graph ───────────────────────────────────────
         await knowledge_graph.populate(inv_id, valid_results)

@@ -57,10 +57,10 @@ export default function DashboardPage() {
     <div className="min-h-screen">
       {/* Nav */}
       <nav className="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-surface/80 backdrop-blur-sm z-40">
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <Brain className="w-5 h-5 text-aegis-400" />
           <span className="font-bold">AEGIS</span>
-        </div>
+        </Link>
         <div className="flex items-center gap-3">
           <Link href="/war-room" className="btn-secondary text-sm">War Room</Link>
           <Link href="/" className="btn-primary text-sm"><Plus className="w-4 h-4" /> New Investigation</Link>

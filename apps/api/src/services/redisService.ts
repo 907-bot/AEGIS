@@ -9,21 +9,23 @@ export async function setupRedis(): Promise<void> {
   try {
     redisClient = new Redis(url, {
       maxRetriesPerRequest: 1,
-      lazyConnect: true,
-      connectTimeout: 5000,
+      connectTimeout: 10000,
     });
 
     redisSubscriber = new Redis(url, { 
-      lazyConnect: true,
-      connectTimeout: 5000,
+      connectTimeout: 10000,
     });
 
-    redisClient.on('connect', () => console.log('✅ Redis connected'));
+    redisClient.on('connect', () => console.log('✅ Redis connected successfully'));
+    redisClient.on('ready', () => console.log('✅ Redis is ready'));
     redisClient.on('error', (err) => {
-      console.warn('⚠️ Redis Connection Warning (App will continue):', err.message);
+      console.warn('⚠️ Redis Connection Error:', err.message);
     });
+
+    // Force connection test
+    await redisClient.ping();
   } catch (err) {
-    console.error('❌ Redis setup failed:', err);
+    console.error('❌ Redis setup failed to connect:', err);
   }
 }
 

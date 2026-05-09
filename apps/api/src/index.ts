@@ -41,9 +41,21 @@ async function buildApp() {
   });
 
   await fastify.register(cors, {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: (origin, cb) => {
+      const allowedOrigins = [
+        'https://907-bot.github.io',
+        'http://localhost:3000',
+        'http://localhost:3001',
+      ];
+      if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.github.io')) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error('Not allowed by CORS'), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-ID'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-ID', 'X-Requested-With'],
+    credentials: true,
   });
 
   await fastify.register(rateLimit, {

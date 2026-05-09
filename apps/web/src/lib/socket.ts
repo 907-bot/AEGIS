@@ -5,10 +5,8 @@ let socket: Socket | null = null;
 export function createSocket(): Socket {
   if (socket?.connected) return socket;
 
-  let WS_URL = process.env.NEXT_PUBLIC_WS_URL || '';
-  if (!WS_URL || WS_URL.includes('aegis-api')) {
-    WS_URL = 'wss://aegis-go-gateway.onrender.com';
-  }
+  // Socket.IO is hosted on the Node API, not the Go gateway.
+  const WS_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
   socket = io(WS_URL, {
     transports: ['websocket', 'polling'],

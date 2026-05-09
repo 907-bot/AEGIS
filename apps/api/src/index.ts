@@ -106,8 +106,7 @@ async function main() {
   const fastify = await buildApp();
 
   // ─── Socket.IO (Real-time) ─────────────────────────────────────────────
-  const httpServer = createServer(fastify.server);
-  const io = new Server(httpServer, {
+  const io = new Server(fastify.server, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
   });
 

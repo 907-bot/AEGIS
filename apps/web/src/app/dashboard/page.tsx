@@ -57,13 +57,13 @@ export default function DashboardPage() {
     <div className="min-h-screen">
       {/* Nav */}
       <nav className="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-surface/80 backdrop-blur-sm z-40">
-        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+        <Link href="/" prefetch={false} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <Brain className="w-5 h-5 text-aegis-400" />
           <span className="font-bold">AEGIS</span>
         </Link>
         <div className="flex items-center gap-3">
-          <Link href="/war-room" className="btn-secondary text-sm">War Room</Link>
-          <Link href="/" className="btn-primary text-sm"><Plus className="w-4 h-4" /> New Investigation</Link>
+          <Link href="/war-room" prefetch={false} className="btn-secondary text-sm">War Room</Link>
+          <Link href="/" prefetch={false} className="btn-primary text-sm"><Plus className="w-4 h-4" /> New Investigation</Link>
         </div>
       </nav>
 
@@ -129,7 +129,7 @@ export default function DashboardPage() {
           <div className="card p-12 text-center">
             <Brain className="w-10 h-10 text-slate-700 mx-auto mb-3" />
             <p className="text-slate-500">No investigations found.</p>
-            <Link href="/" className="btn-primary mt-4 inline-flex">Start your first investigation</Link>
+            <Link href="/" prefetch={false} className="btn-primary mt-4 inline-flex">Start your first investigation</Link>
           </div>
         ) : (
           <div className="card overflow-hidden">

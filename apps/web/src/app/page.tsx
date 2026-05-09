@@ -46,7 +46,7 @@ export default function HomePage() {
     <div className="min-h-screen grid-dots flex flex-col">
       {/* Nav */}
       <nav className="border-b border-slate-800/60 px-6 py-4 flex items-center justify-between backdrop-blur-sm sticky top-0 z-50 bg-surface/80">
-        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+        <Link href="/" prefetch={false} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-aegis-600 rounded-lg flex items-center justify-center">
             <Brain className="w-5 h-5 text-white" />
           </div>
@@ -54,8 +54,8 @@ export default function HomePage() {
           <span className="badge badge-info">v1.0</span>
         </Link>
         <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="btn-ghost text-sm">Dashboard</Link>
-          <Link href="/war-room" className="btn-secondary text-sm">War Room</Link>
+          <Link href="/dashboard" prefetch={false} className="btn-ghost text-sm">Dashboard</Link>
+          <Link href="/war-room" prefetch={false} className="btn-secondary text-sm">War Room</Link>
         </div>
       </nav>
 

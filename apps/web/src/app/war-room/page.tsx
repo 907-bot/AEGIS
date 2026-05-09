@@ -62,8 +62,8 @@ export default function WarRoomPage() {
             <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
             {connected ? 'Live Feed Active' : 'Disconnected'}
           </div>
-          <Link href="/dashboard" className="btn-secondary text-sm">Dashboard</Link>
-          <Link href="/" className="btn-primary text-sm">New Investigation</Link>
+          <Link href="/dashboard" prefetch={false} className="btn-secondary text-sm">Dashboard</Link>
+          <Link href="/" prefetch={false} className="btn-primary text-sm">New Investigation</Link>
         </div>
       </header>
 
@@ -121,6 +121,7 @@ export default function WarRoomPage() {
                 <Link
                   key={inv.id}
                   href={`/investigation/${inv.id}`}
+                  prefetch={false}
                   className="card p-3 block hover:border-aegis-500/30 transition-colors"
                 >
                   <div className="text-xs font-medium truncate">{inv.company_name || inv.target_url}</div>
@@ -214,10 +215,10 @@ export default function WarRoomPage() {
           <div>
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Link href="/" className="btn-primary w-full text-xs justify-center">
+              <Link href="/" prefetch={false} className="btn-primary w-full text-xs justify-center">
                 <Zap className="w-3 h-3" /> New Investigation
               </Link>
-              <Link href="/dashboard" className="btn-secondary w-full text-xs justify-center">
+              <Link href="/dashboard" prefetch={false} className="btn-secondary w-full text-xs justify-center">
                 <BarChart3 className="w-3 h-3" /> Full Dashboard
               </Link>
             </div>

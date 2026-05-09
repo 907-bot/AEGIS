@@ -164,6 +164,7 @@ class LLMRouter:
                 ],
                 max_tokens=max_tokens,
                 temperature=temperature,
+                timeout=60.0,
                 **kwargs,
             )
             content = resp.choices[0].message.content or ""
@@ -177,6 +178,7 @@ class LLMRouter:
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
+                timeout=60.0,
             )
             content = resp.content[0].text if resp.content else ""
             in_tok  = resp.usage.input_tokens
@@ -190,7 +192,8 @@ class LLMRouter:
                 generation_config=self.gemini.types.GenerationConfig(
                     max_output_tokens=max_tokens,
                     temperature=temperature,
-                )
+                ),
+                request_options={"timeout": 60.0}
             )
             content = resp.text
             # Token counting is slightly different in Gemini SDK

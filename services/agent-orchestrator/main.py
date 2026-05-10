@@ -68,19 +68,37 @@ async def lifespan(app: FastAPI):
     global llm_router, experience_bank, knowledge_graph, debate_crew
 
     log.info("🚀 AEGIS Agent Orchestrator starting up...")
-    await init_db()
-    await init_redis()
+    
+    try:
+        await init_db()
+        log.info("✅ Database connected")
+    except Exception as e:
+        log.error("❌ Database connection failed", error=str(e))
+
+    try:
+        await init_redis()
+        log.info("✅ Redis connected")
+    except Exception as e:
+        log.error("❌ Redis connection failed", error=str(e))
 
     llm_router      = LLMRouter()
     experience_bank = ExperienceBank()
     knowledge_graph = KnowledgeGraphService()
     debate_crew     = AegisDebateCrew(llm_router)
 
-    await knowledge_graph.connect()
-    log.info("✅ All services initialised")
+    try:
+        await knowledge_graph.connect()
+        log.info("✅ Knowledge Graph connected")
+    except Exception as e:
+        log.error("❌ Knowledge Graph connection failed", error=str(e))
+
+    log.info("✅ All services initialisation attempt complete")
     yield
     # Shutdown
-    await knowledge_graph.close()
+    try:
+        await knowledge_graph.close()
+    except Exception:
+        pass
     log.info("👋 AEGIS Agent Orchestrator shut down")
 
 
@@ -122,9 +140,32 @@ class InvestigationStatus(BaseModel):
 # ─── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    redis = get_redis()
-    await redis.ping()
-    return {"status": "ok", "service": "agent-orchestrator", "timestamp": datetime.utcnow()}
+    status = "ok"
+    details = {}
+    
+    try:
+        redis = get_redis()
+        await redis.ping()
+        details["redis"] = "ok"
+    except Exception as e:
+        status = "degraded"
+        details["redis"] = str(e)
+
+    try:
+        db = await get_db_pool()
+        async with db.acquire() as conn:
+            await conn.execute("SELECT 1")
+        details["postgres"] = "ok"
+    except Exception as e:
+        status = "degraded"
+        details["postgres"] = str(e)
+
+    return {
+        "status": status,
+        "service": "agent-orchestrator",
+        "timestamp": datetime.utcnow(),
+        "details": details
+    }
 
 @app.get("/metrics")
 async def metrics():

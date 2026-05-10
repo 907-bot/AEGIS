@@ -4,6 +4,8 @@ import { redisClient } from '../services/redisService';
 
 // ─── Health Routes ────────────────────────────────────────────────────────────
 export async function healthRoutes(fastify: FastifyInstance) {
+  fastify.get('/', async (_req, reply) => reply.send({ status: 'ok', service: 'api' }));
+  
   fastify.get('/live', async (_req, reply) => reply.send({ status: 'ok' }));
 
   fastify.get('/ready', async (_req, reply) => {

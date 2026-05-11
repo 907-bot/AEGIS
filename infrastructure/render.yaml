@@ -82,6 +82,40 @@ services:
       - key: SCRAPING_CONCURRENCY
         value: "2"
 
+  # ─── ARQ Background Worker ────────────────────────────────────────────────
+  - type: worker
+    name: aegis-arq-worker
+    runtime: docker
+    region: oregon
+    plan: starter
+    rootDir: services/agent-orchestrator
+    dockerCommand: arq worker.WorkerSettings
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aegis-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: aegis-redis
+          type: redis
+          property: connectionString
+      - key: NEO4J_URL
+        sync: false
+      - key: NEO4J_USER
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SCRAPING_CONCURRENCY
+        value: "2"
+
   # ─── Go Gateway ────────────────────────────────────────────────────────────
   - type: web
     name: aegis-go-gateway

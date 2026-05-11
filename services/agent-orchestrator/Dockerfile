@@ -30,4 +30,8 @@ USER aegis
 
 ENV PORT=8001
 EXPOSE ${PORT}
+
+# Default: Run the API server
+# For ARQ worker (background job processor), override CMD with:
+#   arq worker.WorkerSettings
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

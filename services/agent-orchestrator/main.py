@@ -16,6 +16,8 @@ import uvicorn
 from dotenv import load_dotenv
 from arq import create_pool
 from arq.connections import RedisSettings
+from arq.worker import Worker
+from worker import WorkerSettings
 
 # Load environment variables
 python_env = os.getenv("PYTHON_ENV", "development")
@@ -46,10 +48,29 @@ INVESTIGATIONS_TOTAL   = Counter("aegis_investigations_total", "Total investigat
 
 # ─── App State ────────────────────────────────────────────────────────────────
 arq_pool:          Optional[Any]              = None  # ARQ Redis pool
+arq_worker_task:   Optional[asyncio.Task]     = None
+
+async def run_arq_worker():
+    """Run ARQ worker in background."""
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+    worker = Worker(
+        functions=WorkerSettings.functions,
+        on_startup=WorkerSettings.on_startup,
+        on_shutdown=WorkerSettings.on_shutdown,
+        redis_settings=RedisSettings.from_dsn(redis_url),
+        max_jobs=WorkerSettings.max_jobs,
+        job_timeout=WorkerSettings.job_timeout,
+        keep_result=WorkerSettings.keep_result,
+    )
+    log.info("✅ ARQ Worker starting in background...")
+    try:
+        await worker.main()
+    except Exception as e:
+        log.error("❌ ARQ Worker crashed", error=str(e))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global arq_pool
+    global arq_pool, arq_worker_task
 
     log.info("🚀 AEGIS Agent Orchestrator starting up...")
 
@@ -62,14 +83,19 @@ async def lifespan(app: FastAPI):
 
     # Initialize ARQ Redis pool (for job queuing)
     try:
-        arq_pool = await create_pool(RedisSettings.from_dsn(os.environ["REDIS_URL"]))
+        arq_pool = await create_pool(RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379")))
         log.info("✅ ARQ Redis pool connected")
     except Exception as e:
         log.error("❌ ARQ Redis pool connection failed", error=str(e))
 
+    # Start background worker task
+    arq_worker_task = asyncio.create_task(run_arq_worker())
+
     log.info("✅ All services initialisation attempt complete")
     yield
     # Shutdown
+    if arq_worker_task:
+        arq_worker_task.cancel()
     if arq_pool:
         await arq_pool.close()
     log.info("👋 AEGIS Agent Orchestrator shut down")

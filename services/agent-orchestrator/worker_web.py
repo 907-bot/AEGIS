@@ -24,26 +24,30 @@ ctx = {}
 
 async def run_arq_worker():
     """Run ARQ worker in background."""
-    global ctx
+    from arq.worker import Worker
+    from arq.connections import RedisSettings
     
-    # Build context like ARQ does
-    ctx = {}
-    await startup(ctx)
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
     
-    # Create ARQ pool and listen for jobs
-    redis_url = os.environ["REDIS_URL"]
-    redis = await create_pool(RedisSettings.from_dsn(redis_url))
+    # Initialize the worker with settings from worker.py
+    # This will automatically call startup(ctx) and shutdown(ctx)
+    worker = Worker(
+        functions=WorkerSettings.functions,
+        on_startup=WorkerSettings.on_startup,
+        on_shutdown=WorkerSettings.on_shutdown,
+        redis_settings=RedisSettings.from_dsn(redis_url),
+        max_jobs=WorkerSettings.max_jobs,
+        job_timeout=WorkerSettings.job_timeout,
+        keep_result=WorkerSettings.keep_result,
+    )
     
-    print("✅ ARQ Worker started — listening for jobs...")
-    
+    print("✅ ARQ Worker starting — listening for jobs...")
     try:
-        while True:
-            # ARQ handles job processing; we just keep the connection alive
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        print("Shutting down ARQ worker...")
-        await shutdown(ctx)
-        await redis.close()
+        await worker.main()
+    except Exception as e:
+        print(f"❌ ARQ Worker crashed: {e}")
+    finally:
+        print("👋 ARQ Worker shut down")
 
 
 @asynccontextmanager

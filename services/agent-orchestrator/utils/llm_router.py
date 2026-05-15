@@ -63,26 +63,28 @@ COST_TABLE = {
     "gpt-4o-mini":              (0.00015, 0.0006),
     "claude-3-5-sonnet-20241022": (0.003, 0.015),
     "claude-3-haiku-20240307":  (0.00025, 0.00125),
-    "gemini-1.5-flash":         (0.000075, 0.0003),
+    "gemini-2.0-flash":         (0.000075, 0.0003),
     "gemini-1.5-pro":           (0.0035, 0.0105),
 }
 
 # Which model to use per task
+# Primary: OpenAI (gpt-4o-mini) — cheapest capable LLM
+# Gemini and Anthropic used as fallbacks only
 TASK_ROUTING: dict[TaskType, tuple[Provider, str]] = {
     TaskType.SCRAPE_ANALYSIS: (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.FINANCIAL:       (Provider.GEMINI,    "gemini-1.5-flash"),
-    TaskType.DEBATE:          (Provider.GEMINI,    "gemini-1.5-flash"),
-    TaskType.SYNTHESIS:       (Provider.GEMINI,    "gemini-1.5-flash"),
-    TaskType.CRITIQUE:        (Provider.GEMINI,    "gemini-1.5-flash"),
-    TaskType.CLASSIFICATION:  (Provider.OPENAI,     "gpt-4o-mini"),
-    TaskType.REPORT:          (Provider.GEMINI,    "gemini-1.5-flash"),
-    TaskType.EMBEDDING:       (Provider.OPENAI,     "text-embedding-3-small"),
+    TaskType.FINANCIAL:       (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.DEBATE:          (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.SYNTHESIS:       (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.CRITIQUE:        (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.CLASSIFICATION:  (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.REPORT:          (Provider.OPENAI,    "gpt-4o-mini"),
+    TaskType.EMBEDDING:       (Provider.OPENAI,    "text-embedding-3-small"),
 }
 
 FALLBACK_ROUTING: dict[Provider, tuple[Provider, str]] = {
-    Provider.ANTHROPIC: (Provider.OPENAI, "gpt-4o"),
+    Provider.OPENAI:    (Provider.ANTHROPIC, "claude-3-haiku-20240307"),
+    Provider.ANTHROPIC: (Provider.GEMINI, "gemini-2.0-flash"),
     Provider.GEMINI:    (Provider.OPENAI, "gpt-4o-mini"),
-    Provider.OPENAI:    (Provider.GEMINI, "gemini-1.5-flash"),
 }
 
 
@@ -185,7 +187,6 @@ class LLMRouter:
             out_tok = resp.usage.output_tokens
 
         else:  # GEMINI
-            # Gemini async call using GenerativeModel
             m = self.gemini.GenerativeModel(model)
             resp = await m.generate_content_async(
                 contents=[{"role": "user", "parts": [f"System: {system}\n\nUser: {prompt}"]}],
@@ -196,12 +197,8 @@ class LLMRouter:
                 request_options={"timeout": 60.0}
             )
             content = resp.text
-            # Token counting is slightly different in Gemini SDK
-            # We'll estimate or use the response usage if available (requires additional call in some versions)
-            in_tok = await m.count_tokens_async(prompt)
-            in_tok = in_tok.total_tokens
-            out_tok = await m.count_tokens_async(content)
-            out_tok = out_tok.total_tokens
+            in_tok  = max(1, len(prompt) // 4)
+            out_tok = max(1, len(content) // 4)
 
         latency   = int((time.monotonic() - start) * 1000)
         in_cost, out_cost = COST_TABLE.get(model, (0.005, 0.015))

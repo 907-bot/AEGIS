@@ -29,6 +29,7 @@ from memory.experience_bank import ExperienceBank
 from memory.knowledge_graph import KnowledgeGraphService
 from workflows.investigation import InvestigationWorkflow
 from utils.llm_router import LLMRouter
+from utils.db import get_db_pool
 from utils.metrics import INVESTIGATIONS_TOTAL, INVESTIGATION_DURATION, AGENT_ERRORS
 
 logger = logging.getLogger("aegis.worker")
@@ -99,11 +100,11 @@ async def run_investigation(
 ):
     """
     ARQ task: Runs the full AEGIS investigation pipeline.
-    ctx["db"] — asyncpg connection
     ctx["redis"] — aioredis client
     """
-    db: asyncpg.Connection = ctx["db"]
     redis: aioredis.Redis = ctx["redis"]
+    pool = await get_db_pool()
+    db = await pool.acquire()
 
     start = datetime.utcnow()
     logger.info(f"[{investigation_id}] Starting investigation: {url}")
@@ -254,6 +255,10 @@ async def run_investigation(
             await knowledge_graph.close()
         except Exception:
             pass
+        try:
+            await pool.release(db)
+        except Exception:
+            pass
 
         return {"investigation_id": investigation_id, "status": "completed"}
 
@@ -263,10 +268,17 @@ async def run_investigation(
         INVESTIGATIONS_TOTAL.labels(type=investigation_type, status="failed").inc()
 
         await update_status(redis, investigation_id, "failed", 0)
-        await update_investigation(db, investigation_id, status="failed")
+        try:
+            await update_investigation(db, investigation_id, status="failed")
+        except Exception:
+            pass
 
         try:
             await knowledge_graph.close()
+        except Exception:
+            pass
+        try:
+            await pool.release(db)
         except Exception:
             pass
 
@@ -276,15 +288,14 @@ async def run_investigation(
 # ─── ARQ Lifecycle Hooks ─────────────────────────────────────────────────────
 
 async def startup(ctx: dict):
-    """Called once when the ARQ worker boots. Set up shared DB + Redis."""
-    ctx["db"] = await asyncpg.connect(DATABASE_URL)
+    """Called once when the ARQ worker boots. Set up shared Redis + DB pool."""
     ctx["redis"] = aioredis.from_url(REDIS_URL, decode_responses=True)
-    logger.info("✅ ARQ Worker started — DB and Redis connected")
+    await get_db_pool()  # initialize the shared pool
+    logger.info("✅ ARQ Worker started — DB pool and Redis connected")
 
 
 async def shutdown(ctx: dict):
     """Clean up on worker shutdown."""
-    await ctx["db"].close()
     await ctx["redis"].aclose()
     logger.info("👋 ARQ Worker shut down cleanly")
 

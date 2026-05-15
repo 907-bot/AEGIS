@@ -35,16 +35,14 @@ print(f"🔍 DEBUG: REDIS_URL='{masked_redis}'")
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
 from utils.redis_client import init_redis, get_redis
+from utils.metrics import INVESTIGATIONS_TOTAL
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log = structlog.get_logger()
-
-# ─── Metrics ──────────────────────────────────────────────────────────────────
-INVESTIGATIONS_TOTAL   = Counter("aegis_investigations_total", "Total investigations", ["type", "status"])
 
 # ─── App State ────────────────────────────────────────────────────────────────
 arq_pool:          Optional[Any]              = None  # ARQ Redis pool

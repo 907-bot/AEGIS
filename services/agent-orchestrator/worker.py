@@ -17,8 +17,6 @@ import asyncpg
 import redis.asyncio as aioredis
 from arq import create_pool
 from arq.connections import RedisSettings
-from prometheus_client import Counter, Histogram
-
 from agents.sentry import SentryAgent
 from agents.financial import FinancialArchaeologist
 from agents.talent import TalentFlowAgent
@@ -31,13 +29,9 @@ from memory.experience_bank import ExperienceBank
 from memory.knowledge_graph import KnowledgeGraphService
 from workflows.investigation import InvestigationWorkflow
 from utils.llm_router import LLMRouter
+from utils.metrics import INVESTIGATIONS_TOTAL, INVESTIGATION_DURATION, AGENT_ERRORS
 
 logger = logging.getLogger("aegis.worker")
-
-# ─── Metrics ──────────────────────────────────────────────────────────────────
-INVESTIGATIONS_TOTAL   = Counter("aegis_investigations_total", "Total investigations", ["type", "status"])
-INVESTIGATION_DURATION = Histogram("aegis_investigation_duration_seconds", "Investigation duration")
-AGENT_ERRORS           = Counter("aegis_agent_errors_total", "Agent errors", ["agent"])
 
 # ─── Environment ─────────────────────────────────────────────────────────────
 REDIS_URL = os.environ["REDIS_URL"]

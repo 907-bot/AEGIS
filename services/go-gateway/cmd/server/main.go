@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -114,9 +115,25 @@ type Server struct {
 	wsMu        sync.RWMutex
 }
 
+func normalizeURL(raw string, defaultScheme string) string {
+	if raw == "" {
+		return defaultScheme
+	}
+	if !strings.Contains(raw, "://") {
+		return defaultScheme + raw
+	}
+	return raw
+}
+
 func NewServer(cfg Config) *Server {
-	apiURL, _  := url.Parse(cfg.APITarget)
-	orchURL, _ := url.Parse(cfg.OrchestratorURL)
+	apiURL, err := url.Parse(normalizeURL(cfg.APITarget, "https://"))
+	if err != nil {
+		log.Fatal().Err(err).Str("target", cfg.APITarget).Msg("invalid API_URL")
+	}
+	orchURL, err := url.Parse(normalizeURL(cfg.OrchestratorURL, "https://"))
+	if err != nil {
+		log.Fatal().Err(err).Str("target", cfg.OrchestratorURL).Msg("invalid ORCHESTRATOR_URL")
+	}
 	redisOpts, _ := redis.ParseURL(cfg.RedisURL)
 
 	s := &Server{

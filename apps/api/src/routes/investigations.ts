@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { query, queryOne, withTransaction } from '../db/postgres';
-import { enqueueInvestigation, getCachedReport, cacheReport } from '../services/redisService';
+import { getCachedReport, cacheReport } from '../services/redisService';
 
 const CreateSchema = z.object({
   url: z.string().url(),
@@ -39,17 +39,19 @@ export async function investigationRoutes(fastify: FastifyInstance) {
         );
       });
 
-      // Fire-and-forget to Python orchestrator
-      enqueueInvestigation({ investigationId: id, url, type, userId }).catch(err => {
-        fastify.log.error(`Redis enqueue failed: ${err.message}`);
-      });
-
-      // Also directly call orchestrator
-      const orchestratorUrl = process.env.AGENT_ORCHESTRATOR_URL || 'http://localhost:8001';
+      // Call Python orchestrator to start the investigation
+      // Render Blueprint sets AGENT_ORCHESTRATOR_URL as bare hostname (no protocol)
+      // from fromService property: host — ensure we add https://
+      let orchestratorUrl = process.env.AGENT_ORCHESTRATOR_URL || 'http://localhost:8001';
+      if (!/^https?:\/\//i.test(orchestratorUrl)) {
+        orchestratorUrl = `https://${orchestratorUrl}`;
+      }
       axios.post(`${orchestratorUrl}/investigate`, {
         investigation_id: id, url, type, user_id: userId,
+      }).then(() => {
+        fastify.log.info(`Orchestrator ping succeeded at ${orchestratorUrl}`);
       }).catch((err) => {
-        fastify.log.warn(`Orchestrator ping failed at ${orchestratorUrl}: ${err.message}`);
+        fastify.log.error(`Orchestrator ping failed at ${orchestratorUrl}: ${err.message}`);
       });
 
       return reply.status(201).send({

@@ -8,6 +8,7 @@ import {
   Target, Globe, Users, Code2, Newspaper, Scale, Swords, RefreshCw
 } from 'lucide-react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { createSocket } from '@/lib/socket';
 import { ScoreRing } from '@/components/ui/ScoreRing';
@@ -43,6 +44,7 @@ type AgentEvent = {
 
 type InvestigationData = {
   id: string; target_url: string; company_name?: string; status: string;
+  investigation_type?: string;
   confidence_score?: number; vitality_score?: number; moat_score?: number;
   risk_score?: number; executive_summary?: string; bull_thesis?: string;
   bear_thesis?: string; skeptic_analysis?: string; final_verdict?: string;
@@ -58,19 +60,33 @@ export default function InvestigationClient() {
   const [activeTab, setActiveTab] = useState<'overview'|'debate'|'graph'|'simulate'>('overview');
   const [graphData, setGraphData] = useState<{ nodes: any[]; edges: any[] } | null>(null);
   const [polling, setPolling]   = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [stuck, setStuck]       = useState(false);
   const socketRef               = useRef<any>(null);
   const pollRef                 = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef            = useRef<number>(Date.now());
 
   // ── Load investigation ──────────────────────────────────────────────────
   const loadInv = async () => {
     try {
       const res = await api.get(`/api/v1/investigations/${id}`);
+      setApiError(null);
       setInv(res.data);
       if (['completed', 'failed'].includes(res.data.status)) {
         setPolling(false);
         loadGraph();
       }
-    } catch (_) {}
+      // Show warning if stuck in queued for > 30s
+      if (res.data.status === 'queued' && Date.now() - startTimeRef.current > 30000) {
+        setStuck(true);
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.error || err.message || 'Connection lost';
+      setApiError(msg);
+      if (Date.now() - startTimeRef.current > 15000) {
+        toast.error(`Backend unreachable: ${msg}`);
+      }
+    }
   };
 
   const loadGraph = async () => {
@@ -80,8 +96,25 @@ export default function InvestigationClient() {
     } catch (_) {}
   };
 
+  const retryInvestigation = async () => {
+    if (!inv) return;
+    try {
+      await api.post('/api/v1/investigations', {
+        url: inv.target_url,
+        type: inv.investigation_type || 'competitive',
+      });
+      toast.success('Investigation re-launched');
+      startTimeRef.current = Date.now();
+      setStuck(false);
+      setPolling(true);
+    } catch {
+      toast.error('Failed to re-launch');
+    }
+  };
+
   // ── Polling ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    startTimeRef.current = Date.now();
     loadInv();
     if (polling) {
       pollRef.current = setInterval(loadInv, 4000);
@@ -149,6 +182,23 @@ export default function InvestigationClient() {
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
         {/* Progress bar */}
+        {apiError && (
+          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Connection error: {apiError}</span>
+          </div>
+        )}
+        {stuck && inv?.status === 'queued' && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="w-4 h-4 shrink-0" />
+              <span>Investigation is taking longer than expected. The backend may need a moment to start up.</span>
+            </div>
+            <button onClick={retryInvestigation} className="mt-2 text-xs underline hover:text-amber-200">
+              Click to retry
+            </button>
+          </div>
+        )}
         {isRunning && (
           <div className="mb-6">
             <div className="flex justify-between text-xs text-slate-500 mb-2">

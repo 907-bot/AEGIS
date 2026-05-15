@@ -35,6 +35,8 @@ services:
         sync: false
       - key: NEO4J_PASSWORD
         sync: false
+      # NOTE: property: host returns bare hostname (no protocol).
+      # The Node.js code prepends https:// automatically — keep property: host.
       - key: AGENT_ORCHESTRATOR_URL
         fromService:
           name: aegis-orchestrator
@@ -95,6 +97,8 @@ services:
     envVars:
       - key: GATEWAY_PORT
         value: "8080"
+      # NOTE: property: host returns bare hostname (no protocol).
+      # The Go code prepends https:// automatically — keep property: host.
       - key: API_URL
         fromService:
           name: aegis-api

@@ -310,7 +310,7 @@ class WorkerSettings:
     functions = [run_investigation]
     on_startup = startup
     on_shutdown = shutdown
-    max_jobs = 5                      # concurrent investigations
+    max_jobs = 1                      # concurrent investigations (1 to limit memory on Render)
     job_timeout = 600                 # 10 min max per investigation
     keep_result = 3600                # keep result in Redis for 1h
 

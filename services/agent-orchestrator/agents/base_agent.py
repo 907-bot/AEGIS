@@ -22,6 +22,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from utils.llm_router import LLMRouter, TaskType, LLMResponse
 from utils.redis_client import get_redis, publish_event
 
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
 log = structlog.get_logger()
 
 
@@ -49,9 +54,9 @@ class AgentResult:
 
 
 class EthicalScraper:
-    """Playwright-based ethical scraper with robots.txt + rate limiting."""
+    """Lightweight scraper — uses httpx by default, falls back to Playwright."""
 
-    _semaphore = asyncio.Semaphore(2)  # Limit concurrent browser launches
+    _playwright_semaphore = asyncio.Semaphore(int(os.getenv("SCRAPING_CONCURRENCY", "1")))
 
     def __init__(self):
         self.robots_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
@@ -60,7 +65,57 @@ class EthicalScraper:
         self.user_agent = "AegisBot/1.0 (Research Intelligence; contact@aegis.ai)"
 
     async def scrape(self, url: str, investigation_id: Optional[str] = None) -> Optional[dict]:
-        async with self._semaphore:
+        # Lightweight httpx scrape first (zero browser memory)
+        result = await self._scrape_httpx(url, investigation_id)
+        if result:
+            return result
+        # Fallback to Playwright if httpx didn't get enough content
+        return await self._scrape_playwright(url, investigation_id)
+
+    async def _scrape_httpx(self, url: str, investigation_id: Optional[str] = None) -> Optional[dict]:
+        domain = urlparse(url).netloc
+        if not await self._check_robots(domain, url):
+            return None
+
+        elapsed = time.time() - self._domain_last_req.get(domain, 0)
+        if elapsed < self.rate_limit_delay:
+            await asyncio.sleep(self.rate_limit_delay - elapsed)
+        self._domain_last_req[domain] = time.time()
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(
+                headers={"User-Agent": self.user_agent},
+                timeout=15.0,
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url)
+
+            if resp.status_code >= 400:
+                return None
+
+            html = resp.text
+            title = ""
+            text = html[:20000]
+            if BeautifulSoup:
+                soup = BeautifulSoup(html, "html.parser")
+                title = soup.title.string.strip() if soup.title and soup.title.string else ""
+                text = soup.get_text(separator="\n", strip=True)[:20000]
+
+            return {
+                "url":         url,
+                "html":        html[:50000],
+                "text":        text,
+                "title":       title,
+                "scraped_at":  datetime.utcnow().isoformat(),
+                "status_code": resp.status_code,
+            }
+        except Exception as e:
+            log.warning("httpx_scrape_failed", url=url, error=str(e))
+            return None
+
+    async def _scrape_playwright(self, url: str, investigation_id: Optional[str] = None) -> Optional[dict]:
+        async with self._playwright_semaphore:
             domain = urlparse(url).netloc
             if investigation_id:
                 await publish_event(investigation_id, {
@@ -72,12 +127,9 @@ class EthicalScraper:
                     "timestamp": datetime.utcnow().isoformat(),
                 })
 
-            # Robots.txt check
             if not await self._check_robots(domain, url):
-                log.warning("blocked_by_robots", url=url)
                 return None
 
-            # Rate limiting per domain
             elapsed = time.time() - self._domain_last_req.get(domain, 0)
             if elapsed < self.rate_limit_delay:
                 await asyncio.sleep(self.rate_limit_delay - elapsed)
@@ -88,20 +140,23 @@ class EthicalScraper:
                 async with async_playwright() as pw:
                     browser = await pw.chromium.launch(
                         headless=True,
-                        args=["--no-sandbox", "--disable-dev-shm-usage"]
+                        args=[
+                            "--no-sandbox", "--disable-dev-shm-usage",
+                            "--disable-gpu", "--single-process",
+                            "--no-zygote", "--disable-accelerated-2d-canvas",
+                            "--disable-setuid-sandbox",
+                        ]
                     )
                     ctx = await browser.new_context(
                         user_agent=self.user_agent,
-                        viewport={"width": 1920, "height": 1080},
+                        viewport={"width": 800, "height": 600},
                     )
-                    # Block heavy assets for speed
                     await ctx.route(
-                        "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,mp3}",
+                        "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,mp3,css,js}",
                         lambda r: r.abort()
                     )
                     page = await ctx.new_page()
-                    # Increase timeout and use a more reliable wait_until
-                    resp = await page.goto(url, wait_until="networkidle", timeout=45000)
+                    resp = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
                     if resp and resp.status >= 400:
                         await browser.close()
                         return None
@@ -109,18 +164,19 @@ class EthicalScraper:
                     html  = await page.content()
                     text  = await page.inner_text("body")
                     title = await page.title()
+                    await page.close()
                     await browser.close()
 
                     return {
                         "url":         url,
-                        "html":        html[:50000],  # cap size
+                        "html":        html[:50000],
                         "text":        text[:20000],
                         "title":       title,
                         "scraped_at":  datetime.utcnow().isoformat(),
                         "status_code": resp.status if resp else 200,
                     }
             except Exception as e:
-                log.error("scraping_failed", url=url, error=str(e))
+                log.error("playwright_scrape_failed", url=url, error=str(e))
                 return None
 
     async def _check_robots(self, domain: str, url: str) -> bool:

@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
     libxrandr2 libgbm1 libasound2 \
+    libpango-1.0-0 libcairo2 libpangoft2-1.0-0 libpangocairo-1.0-0 \
+    libthai0 libfontconfig1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set Playwright browser path

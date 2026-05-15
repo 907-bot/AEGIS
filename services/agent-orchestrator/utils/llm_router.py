@@ -143,10 +143,19 @@ class LLMRouter:
 
             log.error("llm_call_failed", provider=provider, error=str(exc))
 
-            # Try fallback
+            # Cascade through fallbacks until one works
+            attempted = {provider}
             fb_provider, fb_model = FALLBACK_ROUTING.get(provider, (Provider.OPENAI, "gpt-4o-mini"))
-            return await self._call(fb_provider, fb_model, system, prompt, max_tokens,
-                                    temperature, response_format)
+            while fb_provider not in attempted:
+                attempted.add(fb_provider)
+                try:
+                    log.warning("llm_fallback", from_=provider, to=fb_provider, model=fb_model)
+                    return await self._call(fb_provider, fb_model, system, prompt,
+                                            max_tokens, temperature, response_format)
+                except Exception as fb_exc:
+                    log.error("llm_fallback_failed", provider=fb_provider, error=str(fb_exc))
+                    fb_provider, fb_model = FALLBACK_ROUTING.get(fb_provider, (Provider.OPENAI, "gpt-4o-mini"))
+            raise
 
     async def _call(
         self, provider: Provider, model: str, system: str, prompt: str,

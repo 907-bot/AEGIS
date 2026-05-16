@@ -1,7 +1,7 @@
 """
-AEGIS LLM Router — Intelligent Multi-Provider Routing
-Routes requests to OpenAI / Anthropic / local based on task type,
-cost budget, latency requirements, and provider health.
+AEGIS LLM Router — Hugging Face Multi-Model Routing
+Routes requests to Hugging Face models based on task type,
+cost budget (free), latency requirements, and model capabilities.
 """
 from __future__ import annotations
 
@@ -13,18 +13,11 @@ from enum import Enum
 from typing import Any, Optional
 
 import structlog
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
-import google.generativeai as genai
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from sentence_transformers import SentenceTransformer
+import torch
 
 log = structlog.get_logger()
-
-
-class Provider(str, Enum):
-    OPENAI    = "openai"
-    ANTHROPIC = "anthropic"
-    GEMINI    = "gemini"
-    FALLBACK  = "fallback"
 
 
 class TaskType(str, Enum):
@@ -39,68 +32,92 @@ class TaskType(str, Enum):
 
 
 @dataclass
-class ProviderHealth:
-    error_count:   int   = 0
-    last_error:    float = 0.0
-    avg_latency:   float = 0.0
-    is_available:  bool  = True
-
-
-@dataclass
-class LLMResponse:
+class ModelResponse:
     content:       str
-    provider:      Provider
     model:         str
     input_tokens:  int = 0
     output_tokens: int = 0
     latency_ms:    int = 0
-    cost_usd:      float = 0.0
+    cost_usd:      float = 0.0  # Always 0 for HF
 
-
-# Cost per 1K tokens (input / output)
-COST_TABLE = {
-    "gpt-4o":                   (0.005, 0.015),
-    "gpt-4o-mini":              (0.00015, 0.0006),
-    "claude-3-5-sonnet-20241022": (0.003, 0.015),
-    "claude-3-haiku-20240307":  (0.00025, 0.00125),
-    "gemini-2.0-flash":         (0.000075, 0.0003),
-    "gemini-1.5-pro":           (0.0035, 0.0105),
-}
 
 # Which model to use per task
-# Primary: OpenAI (gpt-4o-mini) — cheapest capable LLM
-# Gemini and Anthropic used as fallbacks only
-TASK_ROUTING: dict[TaskType, tuple[Provider, str]] = {
-    TaskType.SCRAPE_ANALYSIS: (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.FINANCIAL:       (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.DEBATE:          (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.SYNTHESIS:       (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.CRITIQUE:        (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.CLASSIFICATION:  (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.REPORT:          (Provider.OPENAI,    "gpt-4o-mini"),
-    TaskType.EMBEDDING:       (Provider.OPENAI,    "text-embedding-3-small"),
-}
-
-FALLBACK_ROUTING: dict[Provider, tuple[Provider, str]] = {
-    Provider.OPENAI:    (Provider.ANTHROPIC, "claude-3-haiku-20240307"),
-    Provider.ANTHROPIC: (Provider.GEMINI, "gemini-2.0-flash"),
-    Provider.GEMINI:    (Provider.OPENAI, "gpt-4o-mini"),
+# Using capable, free Hugging Face models
+TASK_ROUTING: dict[TaskType, str] = {
+    TaskType.SCRAPE_ANALYSIS: "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.FINANCIAL:       "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.DEBATE:          "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.SYNTHESIS:       "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.CRITIQUE:        "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.CLASSIFICATION:  "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.REPORT:          "microsoft/Phi-3-mini-4k-instruct",
+    TaskType.EMBEDDING:       "sentence-transformers/all-MiniLM-L6-v2",
 }
 
 
 class LLMRouter:
     def __init__(self):
-        self.openai    = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", "sk-placeholder"))
-        self.anthropic = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "sk-ant-placeholder"))
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY", "AIza-placeholder"))
-        self.gemini = genai
+        self.models: dict[str, Any] = {}
+        self.tokenizers: dict[str, Any] = {}
+        self.pipelines: dict[str, Any] = {}
+        self.embedding_model: Optional[SentenceTransformer] = None
         
-        self.health: dict[Provider, ProviderHealth] = {
-            Provider.OPENAI:    ProviderHealth(),
-            Provider.ANTHROPIC: ProviderHealth(),
-            Provider.GEMINI:    ProviderHealth(),
-        }
-
+        # Initialize models lazily to save memory
+        self._initialize_embedding_model()
+        
+        self.health: dict[str, dict] = {}  # Track model health
+    
+    def _get_model(self, model_name: str):
+        """Lazy load model and tokenizer."""
+        if model_name not in self.models:
+            log.info("loading_hf_model", model=model_name)
+            try:
+                # For text generation models
+                if "embed" not in model_name.lower():
+                    tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    model = AutoModelForCausalLM.from_pretrained(
+                        model_name,
+                        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                        device_map="auto" if torch.cuda.is_available() else None,
+                    )
+                    
+                    # Set pad token if not present
+                    if tokenizer.pad_token is None:
+                        tokenizer.pad_token = tokenizer.eos_token
+                    
+                    self.models[model_name] = model
+                    self.tokenizers[model_name] = tokenizer
+                    
+                    # Create pipeline
+                    self.pipelines[model_name] = pipeline(
+                        "text-generation",
+                        model=model,
+                        tokenizer=tokenizer,
+                        max_new_tokens=2048,
+                        do_sample=True,
+                        temperature=0.7,
+                        device_map="auto" if torch.cuda.is_available() else None,
+                        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    )
+                else:
+                    # This is an embedding model, handled separately
+                    pass
+            except Exception as e:
+                log.error("failed_to_load_hf_model", model=model_name, error=str(e))
+                raise
+        
+        return self.models.get(model_name), self.tokenizers.get(model_name), self.pipelines.get(model_name)
+    
+    def _initialize_embedding_model(self):
+        """Initialize the embedding model."""
+        embedding_model_name = TASK_ROUTING[TaskType.EMBEDDING]
+        try:
+            log.info("loading_embedding_model", model=embedding_model_name)
+            self.embedding_model = SentenceTransformer(embedding_model_name)
+        except Exception as e:
+            log.error("failed_to_load_embedding_model", model=embedding_model_name, error=str(e))
+            raise
+    
     async def complete(
         self,
         task_type: TaskType,
@@ -109,129 +126,146 @@ class LLMRouter:
         max_tokens: int = 2048,
         temperature: float = 0.7,
         response_format: Optional[str] = None,
-    ) -> LLMResponse:
-        provider, model = TASK_ROUTING[task_type]
-
-        # Health check — fall back if too many errors
-        if not self.health[provider].is_available:
-            fb_provider, fb_model = FALLBACK_ROUTING[provider]
-            log.warning("provider_unhealthy_fallback", from_=provider, to=fb_provider)
-            provider, model = fb_provider, fb_model
-
+    ) -> ModelResponse:
+        model_name = TASK_ROUTING[task_type]
+        
         try:
             start = time.monotonic()
-            response = await self._call(provider, model, system, prompt, max_tokens,
-                                        temperature, response_format)
+            response = await self._call(model_name, system, prompt, max_tokens, temperature, response_format)
             latency = int((time.monotonic() - start) * 1000)
-
-            # Update health
-            h = self.health[provider]
+            
+            # Update health (simplified)
+            if model_name not in self.health:
+                self.health[model_name] = {"error_count": 0, "last_error": 0.0, "avg_latency": 0.0, "is_available": True}
+            
+            h = self.health[model_name]
             h.avg_latency = (h.avg_latency * 0.9) + (latency * 0.1)
-            h.error_count  = max(0, h.error_count - 1)
-
-            log.info("llm_call_success", provider=provider, model=model,
+            h.error_count = max(0, h.error_count - 1)
+            
+            log.info("llm_call_success", model=model_name,
                      tokens=response.input_tokens + response.output_tokens, latency_ms=latency)
             return response
-
+            
         except Exception as exc:
-            h = self.health[provider]
+            # Update health
+            if model_name not in self.health:
+                self.health[model_name] = {"error_count": 0, "last_error": 0.0, "avg_latency": 0.0, "is_available": True}
+            
+            h = self.health[model_name]
             h.error_count += 1
-            h.last_error   = time.time()
+            h.last_error = time.time()
             if h.error_count > 5:
                 h.is_available = False
-                asyncio.create_task(self._restore_provider(provider))
-
-            log.error("llm_call_failed", provider=provider, error=str(exc))
-
-            # Cascade through fallbacks until one works
-            attempted = {provider}
-            fb_provider, fb_model = FALLBACK_ROUTING.get(provider, (Provider.OPENAI, "gpt-4o-mini"))
-            while fb_provider not in attempted:
-                attempted.add(fb_provider)
-                try:
-                    log.warning("llm_fallback", from_=provider, to=fb_provider, model=fb_model)
-                    return await self._call(fb_provider, fb_model, system, prompt,
-                                            max_tokens, temperature, response_format)
-                except Exception as fb_exc:
-                    log.error("llm_fallback_failed", provider=fb_provider, error=str(fb_exc))
-                    fb_provider, fb_model = FALLBACK_ROUTING.get(fb_provider, (Provider.OPENAI, "gpt-4o-mini"))
+                # In a real scenario, we might try to reload or switch models
+                # For simplicity, we'll just log and continue trying
+                asyncio.create_task(self._restore_model(model_name))
+            
+            log.error("llm_call_failed", model=model_name, error=str(exc))
             raise
-
+    
     async def _call(
-        self, provider: Provider, model: str, system: str, prompt: str,
+        self, model_name: str, system: str, prompt: str,
         max_tokens: int, temperature: float, response_format: Optional[str],
-    ) -> LLMResponse:
+    ) -> ModelResponse:
         start = time.monotonic()
-
-        if provider == Provider.OPENAI:
-            kwargs: dict[str, Any] = {}
-            if response_format == "json":
-                kwargs["response_format"] = {"type": "json_object"}
-            resp = await self.openai.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": prompt},
-                ],
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout=60.0,
-                **kwargs,
+        
+        # Get model components
+        model, tokenizer, pipe = self._get_model(model_name)
+        
+        if model_name == TASK_ROUTING[TaskType.EMBEDDING]:
+            # This shouldn't happen as embeddings are handled separately
+            raise ValueError("Embedding model should not be called via _call")
+        
+        # Format prompt with system message
+        formatted_prompt = f"<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>"
+        
+        # Generation config
+        generation_kwargs = {
+            "max_new_tokens": max_tokens,
+            "temperature": temperature,
+            "do_sample": True,
+            "pad_token_id": tokenizer.eos_token_id,
+            "return_full_text": False,  # Only return generated text
+        }
+        
+        if response_format == "json":
+            # Add JSON formatting instruction
+            formatted_prompt += "\nPlease respond with valid JSON only."
+        
+        # Generate text
+        try:
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, 
+                lambda: pipe(formatted_prompt, **generation_kwargs)
             )
-            content = resp.choices[0].message.content or ""
-            in_tok  = resp.usage.prompt_tokens
-            out_tok = resp.usage.completion_tokens
-
-        elif provider == Provider.ANTHROPIC:
-            resp = await self.anthropic.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                timeout=60.0,
-            )
-            content = resp.content[0].text if resp.content else ""
-            in_tok  = resp.usage.input_tokens
-            out_tok = resp.usage.output_tokens
-
-        else:  # GEMINI
-            m = self.gemini.GenerativeModel(model)
-            resp = await m.generate_content_async(
-                contents=[{"role": "user", "parts": [f"System: {system}\n\nUser: {prompt}"]}],
-                generation_config=self.gemini.types.GenerationConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
-                request_options={"timeout": 60.0}
-            )
-            content = resp.text
-            in_tok  = max(1, len(prompt) // 4)
-            out_tok = max(1, len(content) // 4)
-
-        latency   = int((time.monotonic() - start) * 1000)
-        in_cost, out_cost = COST_TABLE.get(model, (0.005, 0.015))
-        cost_usd  = (in_tok / 1000) * in_cost + (out_tok / 1000) * out_cost
-
-        return LLMResponse(
-            content=content, provider=provider, model=model,
-            input_tokens=in_tok, output_tokens=out_tok,
-            latency_ms=latency, cost_usd=cost_usd,
+            
+            content = result[0]["generated_text"] if result else ""
+            
+            # Simple token estimation (more accurate would require tokenizer)
+            in_tok = len(tokenizer.encode(formatted_prompt))
+            out_tok = len(tokenizer.encode(content)) if content else 0
+            
+        except Exception as e:
+            log.error("hf_generation_failed", model=model_name, error=str(e))
+            raise
+        
+        latency = int((time.monotonic() - start) * 1000)
+        
+        return ModelResponse(
+            content=content,
+            model=model_name,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            latency_ms=latency,
+            cost_usd=0.0,  # Free with HF
         )
-
+    
     async def embed(self, text: str) -> list[float]:
-        resp = await self.openai.embeddings.create(
-            model="text-embedding-3-small",
-            input=text[:8000],
-        )
-        return resp.data[0].embedding
-
-    async def _restore_provider(self, provider: Provider, delay: int = 60):
+        """Generate embeddings using sentence transformers."""
+        if self.embedding_model is None:
+            self._initialize_embedding_model()
+        
+        start = time.monotonic()
+        try:
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(
+                None,
+                lambda: self.embedding_model.encode(text[:8000])  # Limit text length
+            )
+            latency = int((time.monotonic() - start) * 1000)
+            
+            return embedding.tolist()
+        except Exception as e:
+            log.error("embedding_failed", error=str(e))
+            raise
+    
+    async def _restore_model(self, model_name: str, delay: int = 60):
+        """Attempt to restore a model after errors."""
         await asyncio.sleep(delay)
-        self.health[provider].is_available = True
-        self.health[provider].error_count  = 0
-        log.info("provider_restored", provider=provider)
-
+        try:
+            # Clear the model from cache to force reload
+            if model_name in self.models:
+                del self.models[model_name]
+            if model_name in self.tokenizers:
+                del self.tokenizers[model_name]
+            if model_name in self.pipelines:
+                del self.pipelines[model_name]
+            
+            # Try to reload
+            self._get_model(model_name)
+            
+            # Update health
+            if model_name in self.health:
+                self.health[model_name].is_available = True
+                self.health[model_name].error_count = 0
+            
+            log.info("model_restored", model=model_name)
+        except Exception as e:
+            log.error("model_restore_failed", model=model_name, error=str(e))
+    
     def get_provider(self, name: str):
-        """For CrewAI compatibility — returns provider name string."""
+        """For CrewAI compatibility — returns model name string."""
         return name

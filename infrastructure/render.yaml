@@ -37,16 +37,17 @@ services:
         sync: false
       # NOTE: property: host returns bare hostname (no protocol).
       # The Node.js code prepends https:// automatically — keep property: host.
-      - key: AGENT_ORCHESTRATOR_URL
-        fromService:
-          name: aegis-orchestrator
-          type: web
-          property: host
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: CORS_ORIGIN
+       - key: AGENT_ORCHESTRATOR_URL
+         fromService:
+           name: aegis-orchestrator
+           type: web
+           property: host
+       # Using Hugging Face models (free) - no API keys needed
+       # - key: OPENAI_API_KEY
+       #   sync: false
+       # - key: ANTHROPIC_API_KEY
+       #   sync: false
+       - key: CORS_ORIGIN
         sync: false
 
   # ─── Python Agent Orchestrator (FastAPI) ───────────────────────────────────

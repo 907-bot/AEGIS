@@ -24,7 +24,7 @@
 ### Step 1: Prerequisites
 - Render account at render.com (free tier works)
 - GitHub repo with this codebase pushed
-- OpenAI API key + Anthropic API key
+- No API keys needed - using free Hugging Face models
 
 ### Step 2: Setup Neo4j AuraDB (Free)
 1. Go to https://neo4j.com/cloud/aura-free/
@@ -281,8 +281,8 @@ go run ./cmd/server
 | PostgreSQL              | Render Free       | **FREE**      |
 | Redis                   | Render Free       | **FREE**      |
 | Neo4j                   | AuraDB Free       | **FREE**      |
-| OpenAI / Anthropic      | Pay-per-use       | ~$2-5/report  |
-| **Total**               |                   | **~$7/month** |
+| Hugging Face Models     | Free              | **FREE**      |
+| **Total**               |                   | **~$0/month** |
 
 > **Note:** Render free tier spins down after 15 min inactivity.
 > For always-on, upgrade API + Orchestrator to Starter ($7/service/month each).

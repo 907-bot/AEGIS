@@ -14,7 +14,7 @@
 |--------------|---------------------------------------------------------|
 | Frontend     | Next.js 14 · TypeScript · Tailwind CSS · Socket.IO      |
 | API Gateway  | Node.js 22 · Fastify · Socket.IO · Zod                  |
-| AI Agents    | Python 3.11 · FastAPI · CrewAI · OpenAI · Anthropic     |
+| AI Agents    | Python 3.11 · FastAPI · CrewAI · Hugging Face           |
 | Go Gateway   | Go 1.22 · gorilla/mux · Redis pub/sub bridge            |
 | Databases    | PostgreSQL 16 + pgvector · Neo4j · Redis                |
 | ML           | Sentence Transformers · Few-Shot Learning · MANN · SNN  |

@@ -20,7 +20,7 @@ import structlog
 from cachetools import TTLCache
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from utils.llm_router import LLMRouter, TaskType, LLMResponse
+from utils.llm_router import LLMRouter, TaskType, ModelResponse as LLMResponse
 from utils.redis_client import get_redis, publish_event
 
 try:

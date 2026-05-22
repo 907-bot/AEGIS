@@ -12,7 +12,7 @@ class FinancialArchaeologist(BaseAgent):
 
     SYSTEM = """You are AEGIS Financial Archaeologist — an expert at inferring financial health
 and revenue signals from indirect data sources (job postings, pricing pages, LinkedIn headcount,
-press releases). You think like a forensic accountant. Return ONLY valid JSON."""
+press releases). You think like a forensic accountant. Return ONLY valid TOON."""
 
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         from urllib.parse import urlparse
@@ -40,34 +40,34 @@ Pricing Page Data: {pricing_data}
 LinkedIn Headcount Signals: {linkedin_data}
 {few_shot}
 
-Return JSON:
-{{
-  "revenue_stage": "pre-revenue|<$1M|$1-10M|$10-50M|$50-100M|$100M+",
-  "revenue_estimate_inr": "rough estimate in INR crores or 'unknown'",
-  "hiring_velocity": "aggressive|steady|slow|frozen|shrinking",
-  "total_open_roles": <number or null>,
-  "engineering_ratio": "<percent of eng roles vs total>",
-  "sales_ratio": "<percent of sales/gtm roles>",
-  "headcount_estimate": "<range or unknown>",
-  "burn_signals": ["signals suggesting high/low burn"],
-  "funding_signals": ["signals about funding stage"],
-  "pricing_transparency": "public|gated|enterprise_only|unknown",
-  "price_points": ["any pricing found"],
-  "revenue_model": "subscription|usage|transaction|advertising|services",
-  "growth_signals": ["positive revenue signals"],
-  "risk_signals": ["concerning financial signals"],
-  "financial_health_score": <0-100>,
-  "confidence": <0.0-1.0>
-}}"""
+Return TOON:
+revenue_stage: pre-revenue|<$1M|$1-10M|$10-50M|$50-100M|$100M+
+revenue_estimate_inr: "rough estimate in INR crores or 'unknown'"
+hiring_velocity: aggressive|steady|slow|frozen|shrinking
+total_open_roles: 12
+engineering_ratio: 30
+sales_ratio: 20
+headcount_estimate: "50-100"
+burn_signals[1]: "no aggressive hiring implies low burn"
+funding_signals[1]: "backed by venture capital"
+pricing_transparency: public|gated|enterprise_only|unknown
+price_points[1]: "$10/mo"
+revenue_model: subscription|usage|transaction|advertising|services
+growth_signals[1]: "increasing headcount"
+risk_signals[1]: "high engineering turnover"
+financial_health_score: 75
+confidence: 0.8
+"""
 
         resp = await self.llm.complete(
             task_type=self.task_type,
             system=self.SYSTEM,
             prompt=prompt,
             max_tokens=1200,
+            response_format="toon",
         )
 
-        data = self._extract_json(resp.content)
+        data = self._extract_toon(resp.content)
         evidence = [f"careers: {careers_data}", f"pricing: {pricing_data}"]
 
         return AgentResult(

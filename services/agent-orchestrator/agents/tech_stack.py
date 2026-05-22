@@ -8,7 +8,7 @@ class TechStackAgent(BaseAgent):
     name      = "tech_stack"
     task_type = TaskType.SCRAPE_ANALYSIS
 
-    SYSTEM = "You are AEGIS Tech Stack Intelligence Agent. Infer technology decisions from observable signals. Return ONLY valid JSON."
+    SYSTEM = "You are AEGIS Tech Stack Intelligence Agent. Infer technology decisions from observable signals. Return ONLY valid TOON."
 
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         await self._emit_event(investigation_id, "in_progress", "Analysing technology stack...")
@@ -20,26 +20,25 @@ class TechStackAgent(BaseAgent):
 HTML signals (first 5000 chars): {html[:5000]}
 Text content: {text[:3000]}
 
-Return JSON:
-{{
-  "frontend": ["React", "Vue", "etc"],
-  "backend_inference": ["Python", "Node.js", "Go", "etc"],
-  "infrastructure": ["AWS", "GCP", "Azure", "Vercel", "etc"],
-  "databases_inferred": ["PostgreSQL", "MongoDB", "etc"],
-  "ai_ml_signals": ["OpenAI", "HuggingFace", "PyTorch", "etc"],
-  "monitoring": ["Datadog", "Sentry", "etc"],
-  "payments": ["Stripe", "Razorpay", "etc"],
-  "security_signals": ["SOC2", "ISO27001", "GDPR", "etc"],
-  "api_type": "REST|GraphQL|gRPC|unknown",
-  "mobile_presence": "iOS|Android|both|none",
-  "tech_maturity": "prototype|startup|scale-up|enterprise",
-  "tech_debt_signals": ["any observable signals"],
-  "innovation_score": <0-100>,
-  "confidence": <0.0-1.0>
-}}"""
+Return TOON:
+frontend[1]: "React"
+backend_inference[1]: "Python"
+infrastructure[1]: "Vercel"
+databases_inferred[1]: "PostgreSQL"
+ai_ml_signals[1]: "OpenAI"
+monitoring[1]: "Sentry"
+payments[1]: "Stripe"
+security_signals[1]: "SOC2"
+api_type: REST|GraphQL|gRPC|unknown
+mobile_presence: iOS|Android|both|none
+tech_maturity: prototype|startup|scale-up|enterprise
+tech_debt_signals[0]:
+innovation_score: 80
+confidence: 0.8
+"""
 
-        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.2, "json")
-        data = self._extract_json(resp.content)
+        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.2, "toon")
+        data = self._extract_toon(resp.content)
         return AgentResult(agent_type=self.name, status="completed", data=data,
                            confidence=float(data.get("confidence", 0.55)),
                            evidence=[url], tokens_used=resp.input_tokens + resp.output_tokens)

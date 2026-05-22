@@ -22,6 +22,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from utils.llm_router import LLMRouter, TaskType, ModelResponse as LLMResponse
 from utils.redis_client import get_redis, publish_event
+from utils.toon_codec import encode as encode_toon, extract_toon
 
 try:
     from bs4 import BeautifulSoup
@@ -259,7 +260,7 @@ class BaseAgent(ABC):
                     for ex in examples:
                         examples_block += f"\n**Example** (confidence: {ex.get('confidence',0):.2f}):\n"
                         examples_block += f"Input: {ex.get('input_text','')[:300]}\n"
-                        examples_block += f"Output: {json.dumps(ex.get('output',{}))[:500]}\n---"
+                        examples_block += f"Output:\n{encode_toon(ex.get('output',{}))[:500]}\n---"
             except Exception:
                 pass
         return examples_block
@@ -296,6 +297,10 @@ class BaseAgent(ABC):
             )
         except Exception:
             pass
+
+    def _extract_toon(self, text: str) -> dict:
+        """Safely extract TOON from LLM output."""
+        return extract_toon(text)
 
     def _extract_json(self, text: str) -> dict:
         """Safely extract JSON from LLM output."""

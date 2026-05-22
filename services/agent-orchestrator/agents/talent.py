@@ -8,7 +8,7 @@ class TalentFlowAgent(BaseAgent):
     name      = "talent_flow"
     task_type = TaskType.SCRAPE_ANALYSIS
 
-    SYSTEM = "You are AEGIS Talent Intelligence Agent. Analyse team, leadership, hiring patterns. Return ONLY valid JSON."
+    SYSTEM = "You are AEGIS Talent Intelligence Agent. Analyse team, leadership, hiring patterns. Return ONLY valid TOON."
 
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         await self._emit_event(investigation_id, "in_progress", "Scanning team and leadership...")
@@ -21,22 +21,21 @@ class TalentFlowAgent(BaseAgent):
         prompt = f"""Analyse talent and leadership at {url}.
 Content: {text[:6000]}
 
-Return JSON:
-{{
-  "leadership_names": ["CEO name", "CTO name", ...],
-  "founder_background": ["academic", "ex-FAANG", "serial-entrepreneur", "domain-expert"],
-  "team_size_estimate": "<range>",
-  "key_skill_sets": ["ML", "fintech", "healthcare", ...],
-  "notable_hires_signals": ["any notable recent hires mentioned"],
-  "leadership_tenure_signals": "stable|recent_changes|unknown",
-  "diversity_signals": ["any observable signals"],
-  "team_quality_score": <0-100>,
-  "red_flags": ["any concerning team signals"],
-  "confidence": <0.0-1.0>
-}}"""
+Return TOON:
+leadership_names[1]: "CEO name"
+founder_background[1]: "ex-FAANG"
+team_size_estimate: "<range>"
+key_skill_sets[1]: "ML"
+notable_hires_signals[0]:
+leadership_tenure_signals: stable|recent_changes|unknown
+diversity_signals[0]:
+team_quality_score: 80
+red_flags[0]:
+confidence: 0.8
+"""
 
-        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.3, "json")
-        data = self._extract_json(resp.content)
+        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.3, "toon")
+        data = self._extract_toon(resp.content)
         return AgentResult(agent_type=self.name, status="completed", data=data,
                            confidence=float(data.get("confidence", 0.5)),
                            evidence=[url + "/about", url + "/team"],

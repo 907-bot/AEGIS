@@ -13,7 +13,7 @@ class SentryAgent(BaseAgent):
     task_type = TaskType.SCRAPE_ANALYSIS
 
     SYSTEM = """You are AEGIS Sentry Agent — an expert at extracting structured intelligence
-from company websites. Extract ALL signals with high precision. Return ONLY valid JSON."""
+from company websites. Extract ALL signals with high precision. Return ONLY valid TOON."""
 
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         # Scrape the target
@@ -44,29 +44,39 @@ Content (first 8000 chars):
 Detected Technologies: {tech_signals}
 {few_shot}
 
-Return a JSON object with these exact keys:
-{{
-  "company_name": "...",
-  "tagline": "...",
-  "description": "...",
-  "business_model": "B2B|B2C|B2B2C|marketplace|SaaS|...",
-  "industry": "...",
-  "founding_stage": "early|growth|late|public",
-  "target_customers": ["..."],
-  "key_products": ["..."],
-  "pricing_model": "subscription|usage|freemium|enterprise|unknown",
-  "has_pricing_page": true|false,
-  "geographic_presence": ["..."],
-  "contact_info": {{"email": "...", "phone": "..."}},
-  "social_links": {{"linkedin": "...", "twitter": "...", "github": "..."}},
-  "tech_stack": {tech_signals},
-  "ui_maturity": "basic|professional|enterprise",
-  "content_quality": "thin|moderate|rich",
-  "seo_signals": {{"has_blog": true|false, "has_case_studies": true|false}},
-  "trust_signals": ["certifications", "awards", "press mentions"],
-  "red_flags": ["any concerning signals found"],
-  "confidence_notes": "why you are confident or uncertain"
-}}"""
+Return TOON with these exact fields:
+company_name: "..."
+tagline: "..."
+description: "..."
+business_model: B2B|B2C|B2B2C|marketplace|SaaS|...
+industry: "..."
+founding_stage: early|growth|late|public
+target_customers[1]: "..."
+key_products[1]: "..."
+pricing_model: subscription|usage|freemium|enterprise|unknown
+has_pricing_page: true|false
+geographic_presence[1]: "..."
+contact_info:
+  email: "..."
+  phone: "..."
+social_links:
+  linkedin: "..."
+  twitter: "..."
+  github: "..."
+tech_stack:
+  frontend[1]: "React"
+  analytics[1]: "GA4"
+  hosting[1]: "AWS"
+  payments[1]: "Stripe"
+ui_maturity: basic|professional|enterprise
+content_quality: thin|moderate|rich
+seo_signals:
+  has_blog: true|false
+  has_case_studies: true|false
+trust_signals[1]: "certifications"
+red_flags[1]: "any concerning signals"
+confidence_notes: "why you are confident or uncertain"
+"""
 
         resp = await self.llm.complete(
             task_type=self.task_type,
@@ -74,10 +84,10 @@ Return a JSON object with these exact keys:
             prompt=prompt,
             max_tokens=1500,
             temperature=0.3,
-            response_format="json",
+            response_format="toon",
         )
 
-        data = self._extract_json(resp.content)
+        data = self._extract_toon(resp.content)
         evidence = [url, f"Scraped {len(text)} chars", f"Tech: {tech_signals}"]
 
         return AgentResult(

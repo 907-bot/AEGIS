@@ -8,7 +8,7 @@ class RegulatoryRadar(BaseAgent):
     name      = "regulatory_radar"
     task_type = TaskType.CLASSIFICATION
 
-    SYSTEM = "You are AEGIS Regulatory Intelligence Agent. Identify legal, compliance, and regulatory risks. Return ONLY valid JSON."
+    SYSTEM = "You are AEGIS Regulatory Intelligence Agent. Identify legal, compliance, and regulatory risks. Return ONLY valid TOON."
 
     async def _run(self, investigation_id: str, url: str) -> AgentResult:
         await self._emit_event(investigation_id, "in_progress", "Scanning regulatory signals...")
@@ -24,26 +24,25 @@ class RegulatoryRadar(BaseAgent):
         prompt = f"""Analyse regulatory and compliance landscape for {url}.
 Content: {text}
 
-Return JSON:
-{{
-  "industry_regulations": ["SEBI", "RBI", "GDPR", "HIPAA", "PCI-DSS", "etc"],
-  "compliance_signals": ["ISO27001", "SOC2", "GDPR compliant", "etc"],
-  "legal_risks": ["data privacy", "regulatory approval needed", "etc"],
-  "jurisdictions_operating": ["India", "USA", "EU", "etc"],
-  "data_handling": "clear|vague|concerning",
-  "privacy_policy_quality": "comprehensive|basic|missing",
-  "terms_quality": "comprehensive|basic|missing",
-  "patent_signals": ["any IP/patent mentions"],
-  "litigation_signals": ["any lawsuit/legal mentions"],
-  "regulatory_approval_needed": true|false,
-  "regulatory_risk_level": "low|medium|high|critical",
-  "compliance_score": <0-100>,
-  "red_flags": ["specific regulatory red flags"],
-  "confidence": <0.0-1.0>
-}}"""
+Return TOON:
+industry_regulations[1]: "SEBI"
+compliance_signals[1]: "ISO27001"
+legal_risks[1]: "data privacy"
+jurisdictions_operating[1]: "India"
+data_handling: clear|vague|concerning
+privacy_policy_quality: comprehensive|basic|missing
+terms_quality: comprehensive|basic|missing
+patent_signals[0]:
+litigation_signals[0]:
+regulatory_approval_needed: true|false
+regulatory_risk_level: low|medium|high|critical
+compliance_score: 85
+red_flags[0]:
+confidence: 0.8
+"""
 
-        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.2, "json")
-        data = self._extract_json(resp.content)
+        resp = await self.llm.complete(self.task_type, self.SYSTEM, prompt, 800, 0.2, "toon")
+        data = self._extract_toon(resp.content)
         return AgentResult(agent_type=self.name, status="completed", data=data,
                            confidence=float(data.get("confidence", 0.6)),
                            evidence=[url, url+"/privacy", url+"/terms"],

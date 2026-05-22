@@ -23,6 +23,9 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 GROQ_API_URL  = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL    = "llama-3.1-8b-instant"   # Free, very fast, 128k context
+# Optional OpenAI fallback (used when GROQ_API_KEY is not set)
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
 # Jina AI free embedding endpoint (no key needed for small volumes)
 JINA_EMBED_URL = "https://api.jina.ai/v1/embeddings"
@@ -72,26 +75,29 @@ class LLMRouter:
         response_format: Optional[str] = None,
     ) -> ModelResponse:
         try:
-            start    = time.monotonic()
+            start = time.monotonic()
             response = await self._call(system, prompt, max_tokens, temperature, response_format)
-            latency  = int((time.monotonic() - start) * 1000)
+            latency = int((time.monotonic() - start) * 1000)
 
-            h = self._health(GROQ_MODEL)
+            model_key = response.model
+            h = self._health(model_key)
             h["avg_latency"] = h["avg_latency"] * 0.9 + latency * 0.1
             h["error_count"] = max(0, h["error_count"] - 1)
 
-            log.info("llm_call_success", model=GROQ_MODEL,
+            log.info("llm_call_success", model=model_key,
                      tokens=response.input_tokens + response.output_tokens,
                      latency_ms=latency)
             return response
 
         except Exception as exc:
-            h = self._health(GROQ_MODEL)
+            # Determine which provider/model to attribute the error to
+            model_key = GROQ_MODEL if os.getenv("GROQ_API_KEY", "") else OPENAI_MODEL
+            h = self._health(model_key)
             h["error_count"] += 1
-            h["last_error"]   = time.time()
+            h["last_error"] = time.time()
             if h["error_count"] > 5:
                 h["is_available"] = False
-            log.error("llm_call_failed", model=GROQ_MODEL, error=str(exc))
+            log.error("llm_call_failed", model=model_key, error=str(exc))
             raise
 
     # ------------------------------------------------------------------
@@ -113,68 +119,95 @@ class LLMRouter:
         elif response_format == "toon":
             prompt += "\n\nRespond with valid TOON (Token-Oriented Object Notation) only."
 
-        api_key = os.getenv("GROQ_API_KEY", "")
-        headers = {
-            "Content-Type":  "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+        openai_key = os.getenv("OPENAI_API_KEY", "")
 
-        payload: dict[str, Any] = {
-            "model":       GROQ_MODEL,
-            "messages":    [
-                {"role": "system", "content": system},
-                {"role": "user",   "content": prompt},
-            ],
-            "max_tokens":  max_tokens,
-            "temperature": temperature,
-        }
+        # Build providers list in preferred order
+        providers: list[dict[str, Any]] = []
+        if groq_key:
+            providers.append({"name": "groq", "url": GROQ_API_URL, "key": groq_key, "model": GROQ_MODEL})
+        if openrouter_key:
+            providers.append({"name": "openrouter", "url": "https://api.openrouter.ai/v1/chat/completions", "key": openrouter_key, "model": os.getenv("OPENROUTER_MODEL", OPENAI_MODEL)})
+        if openai_key:
+            providers.append({"name": "openai", "url": OPENAI_API_URL, "key": openai_key, "model": OPENAI_MODEL})
 
-        # Groq supports native JSON mode
-        if response_format == "json":
-            payload["response_format"] = {"type": "json_object"}
+        if not providers:
+            raise RuntimeError("No LLM provider configured: set GROQ_API_KEY, OPENROUTER_API_KEY or OPENAI_API_KEY in the environment")
 
         content = ""
+        # Try providers sequentially; each provider gets a small retry loop before moving to next
         async with self._semaphore:
             async with httpx.AsyncClient(timeout=90.0) as client:
-                for attempt in range(4):
-                    try:
-                        resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
+                for prov in providers:
+                    provider = prov["name"]
+                    url = prov["url"]
+                    api_key = prov["key"]
+                    model_for_provider = prov["model"]
 
-                        if resp.status_code == 200:
-                            data    = resp.json()
-                            content = data["choices"][0]["message"]["content"]
-                            usage   = data.get("usage", {})
-                            latency = int((time.monotonic() - start) * 1000)
-                            return ModelResponse(
-                                content=content,
-                                model=GROQ_MODEL,
-                                input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
-                                output_tokens=usage.get("completion_tokens", len(content) // 4),
-                                latency_ms=latency,
-                                cost_usd=0.0,
-                            )
+                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
-                        elif resp.status_code == 429:
-                            # Rate-limited — back off with jitter and retry
-                            retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
-                            log.warning("groq_rate_limited", retry_after=retry_after)
-                            await asyncio.sleep(retry_after)
+                    payload: dict[str, Any] = {
+                        "model":       model_for_provider,
+                        "messages":    [
+                            {"role": "system", "content": system},
+                            {"role": "user",   "content": prompt},
+                        ],
+                        "max_tokens":  max_tokens,
+                        "temperature": temperature,
+                    }
 
-                        else:
-                            resp.raise_for_status()
+                    # Groq supports native JSON mode via response_format
+                    if provider == "groq" and response_format == "json":
+                        payload["response_format"] = {"type": "json_object"}
 
-                    except httpx.ConnectError as e:
-                        log.error("groq_connect_error", attempt=attempt, error=str(e))
-                        if attempt == 3:
-                            raise
-                        await asyncio.sleep(3.0 * (attempt + 1) + random.uniform(0.5, 2.0))
+                    # Per-provider attempt loop
+                    for attempt in range(3):
+                        try:
+                            resp = await client.post(url, headers=headers, json=payload)
 
-                    except Exception as e:
-                        if attempt == 3:
-                            raise
-                        await asyncio.sleep(2.0 + random.uniform(0.5, 2.0))
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                content = data["choices"][0]["message"]["content"]
+                                usage = data.get("usage", {})
+                                latency = int((time.monotonic() - start) * 1000)
+                                return ModelResponse(
+                                    content=content,
+                                    model=model_for_provider,
+                                    input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
+                                    output_tokens=usage.get("completion_tokens", len(content) // 4),
+                                    latency_ms=latency,
+                                    cost_usd=0.0,
+                                )
 
-        raise RuntimeError("Groq API call failed after all retries")
+                            elif resp.status_code == 429:
+                                retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
+                                log.warning("llm_rate_limited", provider=provider, retry_after=retry_after)
+                                await asyncio.sleep(retry_after)
+                                continue
+
+                            else:
+                                # For non-200/429 status, try again a couple times then move to next provider
+                                log.warning("llm_unexpected_status", provider=provider, status=resp.status_code)
+                                resp.raise_for_status()
+
+                        except httpx.ConnectError as e:
+                            log.error("llm_connect_error", provider=provider, attempt=attempt, error=str(e))
+                            # short backoff before retrying same provider
+                            await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
+                            continue
+
+                        except Exception as e:
+                            log.error("llm_provider_error", provider=provider, attempt=attempt, error=str(e))
+                            # try the same provider a couple times; if still failing we'll move to next provider
+                            await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
+                            continue
+
+                    # If we reach here, this provider exhausted attempts — move to next provider
+                    log.warning("llm_provider_unavailable", provider=provider)
+
+        # All providers exhausted
+        raise RuntimeError("All configured LLM providers failed after retries")
 
     # ------------------------------------------------------------------
     # Public: embed()  — Jina AI free embeddings

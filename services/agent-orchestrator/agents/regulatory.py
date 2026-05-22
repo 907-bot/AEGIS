@@ -7,6 +7,9 @@ from utils.llm_router import TaskType
 class RegulatoryRadar(BaseAgent):
     name      = "regulatory_radar"
     task_type = TaskType.CLASSIFICATION
+    # Regulatory scanning can be longer due to multiple policy pages
+    timeout_seconds = 150
+    max_attempts = 2
 
     SYSTEM = "You are AEGIS Regulatory Intelligence Agent. Identify legal, compliance, and regulatory risks. Return ONLY valid TOON."
 

@@ -11,6 +11,9 @@ from utils.llm_router import TaskType
 class SentryAgent(BaseAgent):
     name      = "sentry"
     task_type = TaskType.SCRAPE_ANALYSIS
+    # Sentry may take longer due to heavy scraping and analysis
+    timeout_seconds = 150
+    max_attempts = 2
 
     SYSTEM = """You are AEGIS Sentry Agent — an expert at extracting structured intelligence
 from company websites. Extract ALL signals with high precision. Return ONLY valid TOON."""

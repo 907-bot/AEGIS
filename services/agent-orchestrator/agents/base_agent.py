@@ -5,6 +5,7 @@ Handles: ethical scraping, few-shot retrieval, telemetry, retry logic.
 from __future__ import annotations
 
 import asyncio
+import random
 import json
 import os
 import re
@@ -204,6 +205,10 @@ class BaseAgent(ABC):
 
     name: str = "base_agent"
     task_type: TaskType = TaskType.SCRAPE_ANALYSIS
+    # Per-agent timeout for the _run() call (seconds). Agents may override.
+    timeout_seconds: int = 90
+    # How many attempts to run the agent before marking failed (including the first run)
+    max_attempts: int = 2
 
     def __init__(self, llm_router: LLMRouter, experience_bank: Any = None):
         self.llm            = llm_router
@@ -214,31 +219,47 @@ class BaseAgent(ABC):
         start = time.monotonic()
         await self._emit_event(investigation_id, "started", f"Agent {self.name} starting...")
 
-        try:
-            result = await asyncio.wait_for(
-                self._run(investigation_id, url),
-                timeout=90.0
-            )
-            latency = int((time.monotonic() - start) * 1000)
+        attempt = 1
+        backoff_base = 1.0
+        last_exc: Optional[Exception] = None
 
-            await self._emit_event(
-                investigation_id, "completed",
-                f"{self.name} finished",
-                confidence=result.confidence,
-                evidence_count=len(result.evidence),
-                latency_ms=latency,
-            )
-            return result.to_dict()
+        while attempt <= self.max_attempts:
+            try:
+                log.info("agent_attempt", agent=self.name, investigation_id=investigation_id, attempt=attempt)
+                result = await asyncio.wait_for(self._run(investigation_id, url), timeout=self.timeout_seconds)
+                latency = int((time.monotonic() - start) * 1000)
 
-        except asyncio.TimeoutError:
-            log.warning("agent_timeout", agent=self.name, investigation_id=investigation_id)
-            await self._emit_event(investigation_id, "timeout", f"{self.name} timed out")
-            return AgentResult(agent_type=self.name, status="timeout").to_dict()
+                await self._emit_event(
+                    investigation_id, "completed",
+                    f"{self.name} finished",
+                    confidence=result.confidence,
+                    evidence_count=len(result.evidence),
+                    latency_ms=latency,
+                )
+                return result.to_dict()
 
-        except Exception as exc:
-            log.error("agent_error", agent=self.name, error=str(exc), exc_info=True)
-            await self._emit_event(investigation_id, "failed", str(exc))
-            return AgentResult(agent_type=self.name, status="failed", error=str(exc)).to_dict()
+            except asyncio.TimeoutError as te:
+                log.warning("agent_timeout", agent=self.name, investigation_id=investigation_id, attempt=attempt)
+                await self._emit_event(investigation_id, "timeout", f"{self.name} timed out (attempt {attempt})")
+                last_exc = te
+
+            except Exception as exc:
+                # Log and attach exception, then retry if attempts remain
+                log.error("agent_error", agent=self.name, error=str(exc), exc_info=True, attempt=attempt)
+                await self._emit_event(investigation_id, "failed", f"{self.name} error (attempt {attempt}): {str(exc)}")
+                last_exc = exc
+
+            # If we have more attempts left, back off briefly and retry
+            attempt += 1
+            if attempt <= self.max_attempts:
+                delay = backoff_base * attempt + random.uniform(0.2, 0.8)
+                log.info("agent_retry_backoff", agent=self.name, next_attempt=attempt, delay=delay)
+                await asyncio.sleep(delay)
+
+        # All attempts exhausted
+        err_msg = str(last_exc) if last_exc else "Unknown error"
+        await self._emit_event(investigation_id, "failed", f"{self.name} failed after {self.max_attempts} attempts: {err_msg}")
+        return AgentResult(agent_type=self.name, status="failed", error=err_msg).to_dict()
 
     @abstractmethod
     async def _run(self, investigation_id: str, url: str) -> AgentResult:

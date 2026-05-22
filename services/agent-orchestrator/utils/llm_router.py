@@ -145,7 +145,12 @@ class LLMRouter:
                     api_key = prov["key"]
                     model_for_provider = prov["model"]
 
-                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+                    # Try common header styles: Authorization Bearer (default), then x-api-key
+                    header_variants = [
+                        {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                        {"Content-Type": "application/json", "x-api-key": api_key},
+                        {"Content-Type": "application/json", "Authorization": api_key},
+                    ]
 
                     payload: dict[str, Any] = {
                         "model":       model_for_provider,
@@ -163,12 +168,21 @@ class LLMRouter:
 
                     # Per-provider attempt loop
                     for attempt in range(3):
+                        # rotate through header variants to handle providers that expect different header names
+                        hv = header_variants[attempt % len(header_variants)]
                         try:
-                            resp = await client.post(url, headers=headers, json=payload)
+                            resp = await client.post(url, headers=hv, json=payload)
 
                             if resp.status_code == 200:
                                 data = resp.json()
                                 content = data["choices"][0]["message"]["content"]
+                                # If caller requested TOON, do a light validation that response looks like TOON.
+                                if response_format == "toon":
+                                    # Expect at least a 'confidence' field in TOON outputs (common in our templates).
+                                    if "confidence" not in content:
+                                        log.warning("llm_toon_validation_failed", provider=provider)
+                                        # treat as provider failure and try next attempt/provider
+                                        raise RuntimeError("TOON validation failed")
                                 usage = data.get("usage", {})
                                 latency = int((time.monotonic() - start) * 1000)
                                 return ModelResponse(

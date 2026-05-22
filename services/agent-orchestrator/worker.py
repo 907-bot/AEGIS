@@ -149,12 +149,41 @@ async def run_investigation(
 
         # Filter errors
         valid_results = []
+        failed_agents = []
         for i, result in enumerate(recon_results):
             if isinstance(result, Exception):
                 logger.error(f"[{investigation_id}] Agent {agents[i].name} failed: {result}")
                 AGENT_ERRORS.labels(agent=agents[i].name).inc()
+                failed_agents.append(agents[i].name)
             else:
                 valid_results.append(result)
+
+        # If at least 5 agents succeeded (out of 7), continue with partial aggregation.
+        success_count = len(valid_results)
+        total_agents = len(agents)
+        if success_count >= 5:
+            logger.info(f"[{investigation_id}] Sufficient agent results ({success_count}/{total_agents}) — proceeding with partial results.")
+            # annotate that this is a partial run so downstream consumers can act accordingly
+            partial_run = True
+        else:
+            # Not enough agent results to produce a reliable report — fail the investigation
+            logger.error(f"[{investigation_id}] Insufficient agent results ({success_count}/{total_agents}) — aborting investigation")
+            await update_status(redis, investigation_id, "failed", 0, agent="reconnaissance")
+            INVESTIGATIONS_TOTAL.labels(type=investigation_type, status="failed").inc()
+            try:
+                await update_investigation(db, investigation_id, status="failed")
+            except Exception:
+                pass
+            # cleanup and return early
+            try:
+                await knowledge_graph.close()
+            except Exception:
+                pass
+            try:
+                await pool.release(db)
+            except Exception:
+                pass
+            return {"investigation_id": investigation_id, "status": "failed", "reason": "insufficient_agent_results"}
 
         await update_status(redis, investigation_id, "running", 25, "knowledge_graph")
 
@@ -179,7 +208,39 @@ async def run_investigation(
 
         # ── Phase 4: Report Generation ────────────────────────────────────
         workflow = InvestigationWorkflow(llm_router)
+        # Include metadata about failed agents so the report can surface missing inputs
         report = await workflow.generate_report(investigation_id, url, debate_result, valid_results)
+        if failed_agents:
+            # attach failure information to the report and its markdown
+            report.setdefault("failed_agents", failed_agents)
+            try:
+                report["raw_markdown"] = (report.get("raw_markdown", "") +
+                                          "\n\n---\n\nFailed agents:\n" +
+                                          "\n".join(f"- {a}" for a in failed_agents))
+            except Exception:
+                pass
+
+        # Attempt to render a PDF version of the report (best-effort)
+        try:
+            import os
+            os.makedirs("reports", exist_ok=True)
+            pdf_path = os.path.join("reports", f"{investigation_id}.pdf")
+            try:
+                # Defer importing heavy dependency until runtime so startup isn't blocked if not installed
+                from reportlab.platypus import SimpleDocTemplate, Preformatted
+                from reportlab.lib.pagesizes import letter
+                from reportlab.lib.styles import getSampleStyleSheet
+
+                doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+                styles = getSampleStyleSheet()
+                pre = Preformatted(report.get("raw_markdown", ""), styles.get("Code", styles["Normal"]))
+                doc.build([pre])
+                report["pdf_path"] = pdf_path
+                logger.info(f"[{investigation_id}] PDF report written to {pdf_path}")
+            except Exception as e:
+                logger.warning(f"[{investigation_id}] PDF generation failed: {e}")
+        except Exception as e:
+            logger.warning(f"[{investigation_id}] Could not create reports directory: {e}")
 
         # ── Phase 5: Persist Report ────────────────────────────────────────
         duration_ms = int((datetime.utcnow() - start).total_seconds() * 1000)

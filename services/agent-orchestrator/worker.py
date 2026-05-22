@@ -28,7 +28,7 @@ from debate.crew import AegisDebateCrew
 from memory.experience_bank import ExperienceBank
 from memory.knowledge_graph import KnowledgeGraphService
 from workflows.investigation import InvestigationWorkflow
-from utils.llm_router import LLMRouter
+from utils.llm_router import LLMRouter, TaskType
 from utils.db import get_db_pool
 from utils.metrics import INVESTIGATIONS_TOTAL, INVESTIGATION_DURATION, AGENT_ERRORS
 
@@ -202,14 +202,56 @@ async def run_investigation(
         await update_status(redis, investigation_id, "running", 55, "debate_chamber")
 
         # ── Phase 3: Debate Chamber ────────────────────────────────────────
-        debate_result = await debate_crew.run(investigation_id, valid_results)
+        try:
+            debate_result = await debate_crew.run(investigation_id, valid_results)
+        except Exception as e:
+            # Don't fail the whole investigation if the debate step (LLM) is unavailable.
+            logger.error(f"[{investigation_id}] Debate chamber failed: {e}")
+            debate_result = {
+                "reasoning_trace": "",
+                "synthesis": {},
+                "bull_thesis": "",
+                "bear_thesis": "",
+                "note": f"Debate failed: {str(e)}",
+            }
 
         await update_status(redis, investigation_id, "running", 75, "report_generation")
 
         # ── Phase 4: Report Generation ────────────────────────────────────
         workflow = InvestigationWorkflow(llm_router)
         # Include metadata about failed agents so the report can surface missing inputs
-        report = await workflow.generate_report(investigation_id, url, debate_result, valid_results)
+        try:
+            report = await workflow.generate_report(investigation_id, url, debate_result, valid_results)
+        except Exception as e:
+            logger.error(f"[{investigation_id}] Report generation failed: {e}")
+            # Build a minimal fallback report using available agent findings
+            exec_sum_lines = []
+            for r in valid_results:
+                try:
+                    agent = r.get("agent_type", "agent")
+                    data = r.get("data") or {}
+                    exec_sum_lines.append(f"{agent}: {str(data)[:200]}")
+                except Exception:
+                    continue
+
+            report = {
+                "company_name": "",
+                "confidence_score": 0.2,
+                "vitality_score": 30,
+                "moat_score": 10,
+                "risk_score": 70,
+                "executive_summary": "\n\n".join(exec_sum_lines)[:4000],
+                "bull_thesis": "",
+                "bear_thesis": "",
+                "skeptic_analysis": "",
+                "final_verdict": "watch",
+                "red_flag_matrix": [],
+                "moat_analysis": {},
+                "scenarios": {},
+                "recommendations": [],
+                "raw_markdown": "\n\n".join(exec_sum_lines)[:10000],
+                "note": f"Report generation failed and a fallback report was created: {str(e)}",
+            }
         if failed_agents:
             # attach failure information to the report and its markdown
             report.setdefault("failed_agents", failed_agents)
@@ -353,6 +395,16 @@ async def startup(ctx: dict):
     ctx["redis"] = aioredis.from_url(REDIS_URL, decode_responses=True)
     await get_db_pool()  # initialize the shared pool
     logger.info("✅ ARQ Worker started — DB pool and Redis connected")
+
+    # Lightweight LLM startup probe: try a minimal completion to validate provider reachability and auth.
+    try:
+        llm = LLMRouter()
+        # short probe - expect a tiny response; non-fatal if it fails
+        probe_prompt = "Please respond with the single word: OK"
+        probe = await llm.complete(TaskType.CLASSIFICATION, "Startup probe", probe_prompt, max_tokens=8, temperature=0.0)
+        logger.info("llm_startup_probe_success", model=probe.model, content=probe.content[:200])
+    except Exception as e:
+        logger.warning("llm_startup_probe_failed", error=str(e))
 
 
 async def shutdown(ctx: dict):

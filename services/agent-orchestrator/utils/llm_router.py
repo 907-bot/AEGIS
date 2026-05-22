@@ -153,26 +153,26 @@ class LLMRouter:
                     # Try each model candidate for this provider in order
                     for model_for_provider in model_candidates:
 
-                    # Try common header styles: Authorization Bearer (default), then x-api-key
-                    header_variants = [
-                        {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                        {"Content-Type": "application/json", "x-api-key": api_key},
-                        {"Content-Type": "application/json", "Authorization": api_key},
-                    ]
+                        # Try common header styles: Authorization Bearer (default), then x-api-key
+                        header_variants = [
+                            {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                            {"Content-Type": "application/json", "x-api-key": api_key},
+                            {"Content-Type": "application/json", "Authorization": api_key},
+                        ]
 
-                    payload: dict[str, Any] = {
-                        "model":       model_for_provider,
-                        "messages":    [
-                            {"role": "system", "content": system},
-                            {"role": "user",   "content": prompt},
-                        ],
-                        "max_tokens":  max_tokens,
-                        "temperature": temperature,
-                    }
+                        payload: dict[str, Any] = {
+                            "model":       model_for_provider,
+                            "messages":    [
+                                {"role": "system", "content": system},
+                                {"role": "user",   "content": prompt},
+                            ],
+                            "max_tokens":  max_tokens,
+                            "temperature": temperature,
+                        }
 
-                    # Groq supports native JSON mode via response_format
-                    if provider == "groq" and response_format == "json":
-                        payload["response_format"] = {"type": "json_object"}
+                        # Groq supports native JSON mode via response_format
+                        if provider == "groq" and response_format == "json":
+                            payload["response_format"] = {"type": "json_object"}
 
                         # Per-model attempt loop
                         for attempt in range(3):
@@ -186,13 +186,15 @@ class LLMRouter:
                                 if resp.status_code == 200:
                                     data = resp.json()
                                     content = data["choices"][0]["message"]["content"]
-                                # If caller requested TOON, do a light validation that response looks like TOON.
-                                if response_format == "toon":
-                                    # Expect at least a 'confidence' field in TOON outputs (common in our templates).
-                                    if "confidence" not in content:
-                                        log.warning("llm_toon_validation_failed", provider=provider)
-                                        # treat as provider failure and try next attempt/provider
-                                        raise RuntimeError("TOON validation failed")
+
+                                    # If caller requested TOON, do a light validation that response looks like TOON.
+                                    if response_format == "toon":
+                                        # Expect at least a 'confidence' field in TOON outputs (common in our templates).
+                                        if "confidence" not in content:
+                                            log.warning("llm_toon_validation_failed", provider=provider, model=model_for_provider)
+                                            # treat as provider failure and try next attempt/provider
+                                            raise RuntimeError("TOON validation failed")
+
                                     usage = data.get("usage", {})
                                     latency = int((time.monotonic() - start) * 1000)
                                     return ModelResponse(
@@ -204,28 +206,29 @@ class LLMRouter:
                                         cost_usd=0.0,
                                     )
 
-                            elif resp.status_code == 429:
-                                retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
-                                log.warning("llm_rate_limited", provider=provider, retry_after=retry_after)
-                                await asyncio.sleep(retry_after)
+                                elif resp.status_code == 429:
+                                    retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
+                                    log.warning("llm_rate_limited", provider=provider, retry_after=retry_after)
+                                    await asyncio.sleep(retry_after)
+                                    continue
+
+                                else:
+                                    # For non-200/429 status, try again a couple times then move to next provider
+                                    log.warning("llm_unexpected_status", provider=provider, status=resp.status_code)
+                                    resp.raise_for_status()
+
+                            except httpx.ConnectError as e:
+                                log.error("llm_connect_error", provider=provider, attempt=attempt, error=str(e))
+                                # short backoff before retrying same provider
+                                await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
                                 continue
 
-                            else:
-                                # For non-200/429 status, try again a couple times then move to next provider
-                                log.warning("llm_unexpected_status", provider=provider, status=resp.status_code)
-                                resp.raise_for_status()
+                            except Exception as e:
+                                # Log model-level provider errors and continue trying other models for the same provider
+                                log.error("llm_provider_error", provider=provider, model=model_for_provider, attempt=attempt, error=str(e))
+                                await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
+                                continue
 
-                        except httpx.ConnectError as e:
-                            log.error("llm_connect_error", provider=provider, attempt=attempt, error=str(e))
-                            # short backoff before retrying same provider
-                            await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
-                            continue
-
-                        except Exception as e:
-                            # Log model-level provider errors and continue trying other models for the same provider
-                            log.error("llm_provider_error", provider=provider, model=model_for_provider, attempt=attempt, error=str(e))
-                            await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
-                            continue
                         # If we reach here, this model exhausted attempts — try next model
                         log.warning("llm_model_unavailable", provider=provider, model=model_for_provider)
                     # finished iterating models for this provider; if none succeeded, move to next provider

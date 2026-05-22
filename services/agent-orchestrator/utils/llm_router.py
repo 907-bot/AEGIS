@@ -1,14 +1,14 @@
 """
-AEGIS LLM Router — Hugging Face Multi-Model Routing
-Routes requests to Hugging Face models based on task type,
-cost budget (free), latency requirements, and model capabilities.
+AEGIS LLM Router — Groq Multi-Model Routing
+Routes requests to Groq API (free tier, LPU-accelerated, OpenAI-compatible).
+Groq free tier: 14,400 req/day, 30 RPM — zero cost, zero DNS issues on Render.
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
@@ -17,49 +17,49 @@ import structlog
 
 log = structlog.get_logger()
 
+# ---------------------------------------------------------------------------
+# Groq API settings
+# ---------------------------------------------------------------------------
+GROQ_API_URL  = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL    = "llama-3.1-8b-instant"   # Free, very fast, 128k context
+
+# Jina AI free embedding endpoint (no key needed for small volumes)
+JINA_EMBED_URL = "https://api.jina.ai/v1/embeddings"
+JINA_MODEL     = "jina-embeddings-v2-base-en"
+
 
 class TaskType(str, Enum):
-    SCRAPE_ANALYSIS  = "scrape_analysis"
-    FINANCIAL        = "financial"
-    DEBATE           = "debate"
-    SYNTHESIS        = "synthesis"
-    CRITIQUE         = "critique"
-    CLASSIFICATION   = "classification"
-    REPORT           = "report"
-    EMBEDDING        = "embedding"
+    SCRAPE_ANALYSIS = "scrape_analysis"
+    FINANCIAL       = "financial"
+    DEBATE          = "debate"
+    SYNTHESIS       = "synthesis"
+    CRITIQUE        = "critique"
+    CLASSIFICATION  = "classification"
+    REPORT          = "report"
+    EMBEDDING       = "embedding"
 
 
 @dataclass
 class ModelResponse:
     content:       str
     model:         str
-    input_tokens:  int = 0
-    output_tokens: int = 0
-    latency_ms:    int = 0
-    cost_usd:      float = 0.0  # Always 0 for HF
-
-
-# Which model to use per task
-TASK_ROUTING: dict[TaskType, str] = {
-    TaskType.SCRAPE_ANALYSIS: "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.FINANCIAL:       "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.DEBATE:          "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.SYNTHESIS:       "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.CRITIQUE:        "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.CLASSIFICATION:  "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.REPORT:          "microsoft/Phi-3-mini-4k-instruct",
-    TaskType.EMBEDDING:       "sentence-transformers/all-MiniLM-L6-v2",
-}
+    input_tokens:  int   = 0
+    output_tokens: int   = 0
+    latency_ms:    int   = 0
+    cost_usd:      float = 0.0  # Always 0 — Groq free tier
 
 
 class LLMRouter:
     def __init__(self):
-        self.models: dict[str, Any] = {}
-        self.tokenizers: dict[str, Any] = {}
-        self.pipelines: dict[str, Any] = {}
-        self.embedding_model: Optional[Any] = None
-        self.health: dict[str, dict] = {}  # Track model health
-        
+        self.models:         dict[str, Any]  = {}
+        self.tokenizers:     dict[str, Any]  = {}
+        self.pipelines:      dict[str, Any]  = {}
+        self.embedding_model: Optional[Any]  = None
+        self.health:         dict[str, dict] = {}
+
+    # ------------------------------------------------------------------
+    # Public: complete()
+    # ------------------------------------------------------------------
     async def complete(
         self,
         task_type: TaskType,
@@ -69,150 +69,154 @@ class LLMRouter:
         temperature: float = 0.7,
         response_format: Optional[str] = None,
     ) -> ModelResponse:
-        model_name = TASK_ROUTING[task_type]
-        
         try:
-            start = time.monotonic()
-            response = await self._call(model_name, system, prompt, max_tokens, temperature, response_format)
-            latency = int((time.monotonic() - start) * 1000)
-            
-            # Update health
-            if model_name not in self.health:
-                self.health[model_name] = {"error_count": 0, "last_error": 0.0, "avg_latency": 0.0, "is_available": True}
-            
-            h = self.health[model_name]
-            h["avg_latency"] = (h["avg_latency"] * 0.9) + (latency * 0.1)
+            start    = time.monotonic()
+            response = await self._call(system, prompt, max_tokens, temperature, response_format)
+            latency  = int((time.monotonic() - start) * 1000)
+
+            h = self._health(GROQ_MODEL)
+            h["avg_latency"] = h["avg_latency"] * 0.9 + latency * 0.1
             h["error_count"] = max(0, h["error_count"] - 1)
-            
-            log.info("llm_call_success", model=model_name,
-                     tokens=response.input_tokens + response.output_tokens, latency_ms=latency)
+
+            log.info("llm_call_success", model=GROQ_MODEL,
+                     tokens=response.input_tokens + response.output_tokens,
+                     latency_ms=latency)
             return response
-            
+
         except Exception as exc:
-            if model_name not in self.health:
-                self.health[model_name] = {"error_count": 0, "last_error": 0.0, "avg_latency": 0.0, "is_available": True}
-            
-            h = self.health[model_name]
+            h = self._health(GROQ_MODEL)
             h["error_count"] += 1
-            h["last_error"] = time.time()
+            h["last_error"]   = time.time()
             if h["error_count"] > 5:
                 h["is_available"] = False
-            
-            log.error("llm_call_failed", model=model_name, error=str(exc))
+            log.error("llm_call_failed", model=GROQ_MODEL, error=str(exc))
             raise
-    
+
+    # ------------------------------------------------------------------
+    # Internal: _call()  — Groq chat-completions endpoint
+    # ------------------------------------------------------------------
     async def _call(
-        self, model_name: str, system: str, prompt: str,
-        max_tokens: int, temperature: float, response_format: Optional[str],
+        self,
+        system: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        response_format: Optional[str],
     ) -> ModelResponse:
         start = time.monotonic()
-        
-        if model_name == TASK_ROUTING[TaskType.EMBEDDING]:
-            raise ValueError("Embedding model should not be called via _call")
-        
-        # Format prompt with system message
-        formatted_prompt = f"<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>"
-        
+
+        # Append format hint to the user message
         if response_format == "json":
-            formatted_prompt += "\nPlease respond with valid JSON only."
+            prompt += "\n\nRespond with valid JSON only. No markdown fences."
         elif response_format == "toon":
-            formatted_prompt += "\nPlease respond with valid TOON (Token-Oriented Object Notation) only."
-        
-        headers = {}
-        token = os.getenv("HF_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            
-        payload = {
-            "inputs": formatted_prompt,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "temperature": temperature,
-                "return_full_text": False
-            }
+            prompt += "\n\nRespond with valid TOON (Token-Oriented Object Notation) only."
+
+        api_key = os.getenv("GROQ_API_KEY", "")
+        headers = {
+            "Content-Type":  "application/json",
+            "Authorization": f"Bearer {api_key}",
         }
-        
+
+        payload: dict[str, Any] = {
+            "model":       GROQ_MODEL,
+            "messages":    [
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
+            ],
+            "max_tokens":  max_tokens,
+            "temperature": temperature,
+        }
+
+        # Groq supports native JSON mode
+        if response_format == "json":
+            payload["response_format"] = {"type": "json_object"}
+
         content = ""
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            for attempt in range(6):
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            for attempt in range(4):
                 try:
-                    resp = await client.post(
-                        f"https://api-inference.huggingface.co/models/{model_name}",
-                        headers=headers,
-                        json=payload
-                    )
+                    resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
+
+                    if resp.status_code == 200:
+                        data    = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+                        usage   = data.get("usage", {})
+                        latency = int((time.monotonic() - start) * 1000)
+                        return ModelResponse(
+                            content=content,
+                            model=GROQ_MODEL,
+                            input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
+                            output_tokens=usage.get("completion_tokens", len(content) // 4),
+                            latency_ms=latency,
+                            cost_usd=0.0,
+                        )
+
+                    elif resp.status_code == 429:
+                        # Rate-limited — back off and retry
+                        retry_after = float(resp.headers.get("retry-after", "5"))
+                        log.warning("groq_rate_limited", retry_after=retry_after)
+                        await asyncio.sleep(retry_after)
+
+                    else:
+                        resp.raise_for_status()
+
+                except httpx.ConnectError as e:
+                    log.error("groq_connect_error", attempt=attempt, error=str(e))
+                    if attempt == 3:
+                        raise
+                    await asyncio.sleep(3.0 * (attempt + 1))
+
+                except Exception as e:
+                    if attempt == 3:
+                        raise
+                    await asyncio.sleep(2.0)
+
+        raise RuntimeError("Groq API call failed after all retries")
+
+    # ------------------------------------------------------------------
+    # Public: embed()  — Jina AI free embeddings
+    # ------------------------------------------------------------------
+    async def embed(self, text: str) -> list[float]:
+        """Generate embeddings via Jina AI free API (no key needed for low volume)."""
+        jina_key = os.getenv("JINA_API_KEY", "")
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if jina_key:
+            headers["Authorization"] = f"Bearer {jina_key}"
+
+        payload = {
+            "model": JINA_MODEL,
+            "input": [text[:8000]],
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for attempt in range(3):
+                try:
+                    resp = await client.post(JINA_EMBED_URL, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
-                        if isinstance(data, list) and len(data) > 0:
-                            content = data[0].get("generated_text", "")
-                        else:
-                            content = str(data)
-                        break
-                    elif resp.status_code == 503:
-                        err_data = resp.json()
-                        estimated_time = err_data.get("estimated_time", 10.0)
-                        log.warning("hf_model_loading", model=model_name, wait_seconds=estimated_time)
-                        await asyncio.sleep(min(estimated_time, 15.0))
-                    else:
-                        resp.raise_for_status()
+                        return data["data"][0]["embedding"]
+                    resp.raise_for_status()
                 except Exception as e:
-                    if attempt == 5:
-                        raise e
-                    await asyncio.sleep(2.0)
-                    
-        in_tok = len(formatted_prompt) // 4
-        out_tok = len(content) // 4 if content else 0
-        latency = int((time.monotonic() - start) * 1000)
-        
-        return ModelResponse(
-            content=content,
-            model=model_name,
-            input_tokens=in_tok,
-            output_tokens=out_tok,
-            latency_ms=latency,
-            cost_usd=0.0,
-        )
-    
-    async def embed(self, text: str) -> list[float]:
-        """Generate embeddings using serverless Hugging Face Inference API."""
-        embedding_model_name = TASK_ROUTING[TaskType.EMBEDDING]
-        start = time.monotonic()
-        
-        headers = {}
-        token = os.getenv("HF_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            
-        payload = {
-            "inputs": text[:8000]
-        }
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for attempt in range(6):
-                try:
-                    resp = await client.post(
-                        f"https://api-inference.huggingface.co/models/{embedding_model_name}",
-                        headers=headers,
-                        json=payload
-                    )
-                    if resp.status_code == 200:
-                        res = resp.json()
-                        if isinstance(res, list):
-                            if len(res) > 0 and isinstance(res[0], list):
-                                return res[0]
-                            return res
-                        raise ValueError(f"Unexpected embedding response format: {res}")
-                    elif resp.status_code == 503:
-                        err_data = resp.json()
-                        estimated_time = err_data.get("estimated_time", 10.0)
-                        log.warning("hf_model_loading", model=embedding_model_name, wait_seconds=estimated_time)
-                        await asyncio.sleep(min(estimated_time, 15.0))
-                    else:
-                        resp.raise_for_status()
-                except Exception as e:
-                    if attempt == 5:
-                        raise e
-                    await asyncio.sleep(2.0)
-                    
-    def get_provider(self, name: str):
+                    if attempt == 2:
+                        # Graceful degradation: return zero vector so the app doesn't crash
+                        log.warning("embed_failed_returning_zeros", error=str(e))
+                        return [0.0] * 768
+                    await asyncio.sleep(1.5)
+
+        return [0.0] * 768  # fallback
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _health(self, model: str) -> dict:
+        if model not in self.health:
+            self.health[model] = {
+                "error_count":  0,
+                "last_error":   0.0,
+                "avg_latency":  0.0,
+                "is_available": True,
+            }
+        return self.health[model]
+
+    def get_provider(self, name: str) -> str:
         return name

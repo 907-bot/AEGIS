@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import httpx
+import structlog
 
 log = structlog.get_logger()
 

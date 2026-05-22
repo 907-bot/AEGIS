@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
   Clock, Zap, BarChart3, Network, FileText, ChevronDown, ChevronUp,
-  Target, Globe, Users, Code2, Newspaper, Scale, Swords, RefreshCw
+  Target, Globe, Users, Code2, Newspaper, Scale, Swords, RefreshCw,
+  Download, FileDown, Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -59,12 +60,13 @@ export default function InvestigationClient() {
   const [events, setEvents]     = useState<AgentEvent[]>([]);
   const [activeTab, setActiveTab] = useState<'overview'|'debate'|'graph'|'simulate'>('overview');
   const [graphData, setGraphData] = useState<{ nodes: any[]; edges: any[] } | null>(null);
-  const [polling, setPolling]   = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [stuck, setStuck]       = useState(false);
-  const socketRef               = useRef<any>(null);
-  const pollRef                 = useRef<NodeJS.Timeout | null>(null);
-  const startTimeRef            = useRef<number>(Date.now());
+  const [polling, setPolling]       = useState(true);
+  const [apiError, setApiError]     = useState<string | null>(null);
+  const [stuck, setStuck]           = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const socketRef                   = useRef<any>(null);
+  const pollRef                     = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef                = useRef<number>(Date.now());
 
   // ── Load investigation ──────────────────────────────────────────────────
   const loadInv = async () => {
@@ -109,6 +111,45 @@ export default function InvestigationClient() {
       setPolling(true);
     } catch {
       toast.error('Failed to re-launch');
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!inv || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const res = await api.get(`/api/v1/reports/${inv.id}/pdf`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aegis-report-${(inv.company_name || inv.id).toLowerCase().replace(/\s+/g, '-')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('PDF downloaded');
+    } catch {
+      toast.error('PDF generation failed. Try again.');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const downloadMarkdown = async () => {
+    if (!inv) return;
+    try {
+      const res = await api.get(`/api/v1/reports/${inv.id}/markdown`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/markdown' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aegis-report-${(inv.company_name || inv.id).toLowerCase().replace(/\s+/g, '-')}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Markdown downloaded');
+    } catch {
+      toast.error('Failed to download markdown.');
     }
   };
 
@@ -172,9 +213,38 @@ export default function InvestigationClient() {
           <div className="flex items-center gap-3">
             <StatusBadge status={inv.status} />
             {isCompleted && (
-              <span className={`badge border px-3 py-1 text-sm font-semibold ${vStyle.bg} ${vStyle.text} ${vStyle.border}`}>
-                {verdict.toUpperCase().replace('_',' ')}
-              </span>
+              <>
+                <span className={`badge border px-3 py-1 text-sm font-semibold ${vStyle.bg} ${vStyle.text} ${vStyle.border}`}>
+                  {verdict.toUpperCase().replace('_',' ')}
+                </span>
+                <button
+                  id="btn-download-markdown"
+                  onClick={downloadMarkdown}
+                  title="Export Markdown"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                             text-slate-300 bg-slate-800 border border-slate-700
+                             hover:bg-slate-700 hover:border-slate-600 hover:text-white
+                             transition-all duration-150"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">.md</span>
+                </button>
+                <button
+                  id="btn-download-pdf"
+                  onClick={downloadPDF}
+                  disabled={pdfLoading}
+                  title="Download PDF Report"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                             text-white bg-indigo-600 border border-indigo-500
+                             hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed
+                             transition-all duration-150 shadow-lg shadow-indigo-900/40"
+                >
+                  {pdfLoading
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Download className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{pdfLoading ? 'Generating…' : 'PDF'}</span>
+                </button>
+              </>
             )}
           </div>
         </div>

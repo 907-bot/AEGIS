@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -56,6 +57,7 @@ class LLMRouter:
         self.pipelines:      dict[str, Any]  = {}
         self.embedding_model: Optional[Any]  = None
         self.health:         dict[str, dict] = {}
+        self._semaphore = asyncio.Semaphore(3)
 
     # ------------------------------------------------------------------
     # Public: complete()
@@ -132,44 +134,45 @@ class LLMRouter:
             payload["response_format"] = {"type": "json_object"}
 
         content = ""
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            for attempt in range(4):
-                try:
-                    resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
+        async with self._semaphore:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                for attempt in range(4):
+                    try:
+                        resp = await client.post(GROQ_API_URL, headers=headers, json=payload)
 
-                    if resp.status_code == 200:
-                        data    = resp.json()
-                        content = data["choices"][0]["message"]["content"]
-                        usage   = data.get("usage", {})
-                        latency = int((time.monotonic() - start) * 1000)
-                        return ModelResponse(
-                            content=content,
-                            model=GROQ_MODEL,
-                            input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
-                            output_tokens=usage.get("completion_tokens", len(content) // 4),
-                            latency_ms=latency,
-                            cost_usd=0.0,
-                        )
+                        if resp.status_code == 200:
+                            data    = resp.json()
+                            content = data["choices"][0]["message"]["content"]
+                            usage   = data.get("usage", {})
+                            latency = int((time.monotonic() - start) * 1000)
+                            return ModelResponse(
+                                content=content,
+                                model=GROQ_MODEL,
+                                input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
+                                output_tokens=usage.get("completion_tokens", len(content) // 4),
+                                latency_ms=latency,
+                                cost_usd=0.0,
+                            )
 
-                    elif resp.status_code == 429:
-                        # Rate-limited — back off and retry
-                        retry_after = float(resp.headers.get("retry-after", "5"))
-                        log.warning("groq_rate_limited", retry_after=retry_after)
-                        await asyncio.sleep(retry_after)
+                        elif resp.status_code == 429:
+                            # Rate-limited — back off with jitter and retry
+                            retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
+                            log.warning("groq_rate_limited", retry_after=retry_after)
+                            await asyncio.sleep(retry_after)
 
-                    else:
-                        resp.raise_for_status()
+                        else:
+                            resp.raise_for_status()
 
-                except httpx.ConnectError as e:
-                    log.error("groq_connect_error", attempt=attempt, error=str(e))
-                    if attempt == 3:
-                        raise
-                    await asyncio.sleep(3.0 * (attempt + 1))
+                    except httpx.ConnectError as e:
+                        log.error("groq_connect_error", attempt=attempt, error=str(e))
+                        if attempt == 3:
+                            raise
+                        await asyncio.sleep(3.0 * (attempt + 1) + random.uniform(0.5, 2.0))
 
-                except Exception as e:
-                    if attempt == 3:
-                        raise
-                    await asyncio.sleep(2.0)
+                    except Exception as e:
+                        if attempt == 3:
+                            raise
+                        await asyncio.sleep(2.0 + random.uniform(0.5, 2.0))
 
         raise RuntimeError("Groq API call failed after all retries")
 

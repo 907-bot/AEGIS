@@ -21,20 +21,69 @@ const TYPES = [
   { value: 'market_analysis', label: 'Market Analysis',     desc: 'Industry landscape mapping' },
 ];
 
+const GLOBAL_REGIONS = [
+  {
+    name: 'Global Tech & AI',
+    companies: [
+      { label: 'Linear', domain: 'linear.app', flag: '⚡' },
+      { label: 'Spotify', domain: 'spotify.com', flag: '🇸🇪' },
+      { label: 'Mistral AI', domain: 'mistral.ai', flag: '🇫🇷' },
+      { label: 'Canva', domain: 'canva.com', flag: '🇦🇺' },
+      { label: 'Notion', domain: 'notion.so', flag: '🇺🇸' },
+    ],
+  },
+  {
+    name: 'Europe & UK',
+    companies: [
+      { label: 'ASML', domain: 'asml.com', flag: '🇳🇱' },
+      { label: 'SAP', domain: 'sap.com', flag: '🇩🇪' },
+      { label: 'Revolut', domain: 'revolut.com', flag: '🇬🇧' },
+      { label: 'Klarna', domain: 'klarna.com', flag: '🇸🇪' },
+      { label: 'Zalando', domain: 'zalando.de', flag: '🇩🇪' },
+    ],
+  },
+  {
+    name: 'Asia-Pacific',
+    companies: [
+      { label: 'Grab', domain: 'grab.com', flag: '🇸🇬' },
+      { label: 'Zerodha', domain: 'zerodha.com', flag: '🇮🇳' },
+      { label: 'Mercari', domain: 'mercari.com', flag: '🇯🇵' },
+      { label: 'Razorpay', domain: 'razorpay.com', flag: '🇮🇳' },
+      { label: 'Coupang', domain: 'coupang.com', flag: '🇰🇷' },
+    ],
+  },
+  {
+    name: 'Americas',
+    companies: [
+      { label: 'Stripe', domain: 'stripe.com', flag: '🇺🇸' },
+      { label: 'Nubank', domain: 'nubank.com.br', flag: '🇧🇷' },
+      { label: 'MercadoLibre', domain: 'mercadolibre.com', flag: '🇦🇷' },
+      { label: 'Shopify', domain: 'shopify.com', flag: '🇨🇦' },
+      { label: 'Databricks', domain: 'databricks.com', flag: '🇺🇸' },
+    ],
+  },
+];
+
 export default function HomePage() {
   const router = useRouter();
-  const [url, setUrl]       = useState('');
-  const [type, setType]     = useState('competitive');
-  const [loading, setLoading] = useState(false);
+  const [url, setUrl]             = useState('');
+  const [type, setType]           = useState('competitive');
+  const [loading, setLoading]     = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState(0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return;
+    let target = url.trim();
+    if (!target) return;
+
+    if (!target.startsWith('http://') && !target.startsWith('https://')) {
+      target = 'https://' + target;
+    }
 
     setLoading(true);
     try {
-      const res = await api.post('/api/v1/investigations', { url: url.trim(), type });
-      toast.success('Investigation launched! Deploying agents...', { icon: '🚀' });
+      const res = await api.post('/api/v1/investigations', { url: target, type });
+      toast.success('Investigation launched! Browser agent deployed...', { icon: '🚀' });
       router.push(`/investigation?id=${res.data.investigationId}`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to start investigation');
@@ -60,7 +109,7 @@ export default function HomePage() {
       </nav>
 
       {/* Hero */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-20">
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -68,33 +117,33 @@ export default function HomePage() {
           className="text-center max-w-4xl w-full"
         >
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-aegis-500/10 border border-aegis-500/30 text-aegis-400 text-sm font-medium mb-8">
-            <Zap className="w-4 h-4 animate-pulse" />
-            Autonomous Multi-Agent Intelligence Platform
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-aegis-500/10 border border-aegis-500/30 text-aegis-400 text-sm font-medium mb-6">
+            <Globe className="w-4 h-4 animate-spin text-cyan-400" />
+            Global Headless Browser Agent · Hydrates Any Web SPA Across 190+ Countries
           </div>
 
           {/* Headline */}
           <h1 className="text-5xl md:text-7xl font-bold leading-tight mb-6">
-            Drop a URL.<br />
+            Investigate Any Company.<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-aegis-400 to-indigo-400">
-              Get Institutional Intel.
+              Anywhere in the World.
             </span>
           </h1>
-          <p className="text-xl text-slate-400 mb-12 max-w-2xl mx-auto">
-            7 AI agents autonomously investigate any company. Adversarial Bull/Bear/Skeptic
-            debate. Strategic report in under 6 minutes. At 1/100th the cost of a human analyst.
+          <p className="text-lg md:text-xl text-slate-400 mb-10 max-w-2xl mx-auto">
+            7 specialized AI agents autonomously investigate any public, private, or high-growth company worldwide.
+            Adversarial Bull/Bear/Skeptic debate chamber, live knowledge graphs, and institutional reports in under 4 minutes.
           </p>
 
           {/* Investigation Form */}
-          <form onSubmit={handleSubmit} className="card p-6 max-w-2xl mx-auto mb-6">
+          <form onSubmit={handleSubmit} className="card p-6 max-w-2xl mx-auto mb-6 shadow-2xl border-slate-700/80">
             <div className="flex gap-3 mb-4">
               <div className="relative flex-1">
                 <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
                 <input
-                  type="url"
+                  type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://any-company.com"
+                  placeholder="Enter any domain or URL worldwide (e.g. spotify.com, mistral.ai, asml.com)..."
                   className="input pl-10"
                   required
                 />
@@ -107,7 +156,7 @@ export default function HomePage() {
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Launching...
+                    Deploying...
                   </span>
                 ) : (
                   <span className="flex items-center gap-2">
@@ -137,17 +186,44 @@ export default function HomePage() {
             </div>
           </form>
 
-          {/* Quick examples */}
-          <div className="flex flex-wrap gap-2 justify-center mb-16">
-            {['stripe.com', 'razorpay.com', 'zepto.com', 'groww.in'].map((ex) => (
-              <button
-                key={ex}
-                onClick={() => setUrl(`https://${ex}`)}
-                className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors border border-slate-700 hover:border-slate-600"
-              >
-                {ex} →
-              </button>
-            ))}
+          {/* Worldwide Company Showcase */}
+          <div className="max-w-2xl mx-auto mb-16">
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Explore Global Targets:
+              </span>
+              <div className="flex gap-1 bg-surface-50 p-1 rounded-lg border border-slate-800 text-xs">
+                {GLOBAL_REGIONS.map((reg, idx) => (
+                  <button
+                    key={reg.name}
+                    type="button"
+                    onClick={() => setSelectedRegion(idx)}
+                    className={`px-2.5 py-1 rounded transition-colors ${
+                      selectedRegion === idx
+                        ? 'bg-aegis-600 text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {reg.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 justify-center">
+              {GLOBAL_REGIONS[selectedRegion].companies.map((co) => (
+                <button
+                  key={co.domain}
+                  type="button"
+                  onClick={() => setUrl(`https://${co.domain}`)}
+                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all border border-slate-700 hover:border-slate-500 flex items-center gap-1.5 shadow-sm"
+                >
+                  <span>{co.flag}</span>
+                  <span className="font-medium">{co.label}</span>
+                  <span className="text-slate-500 text-[11px]">({co.domain})</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Features */}

@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis
+  labels:
+    name: aegis
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-schema
+  namespace: aegis
+data:
+  01-schema.sql: |
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      email VARCHAR(255) UNIQUE NOT NULL,
+      name VARCHAR(255),
+      clerk_id VARCHAR(255) UNIQUE,
+      tier VARCHAR(50) DEFAULT 'starter',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS investigations (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      target_url TEXT NOT NULL,
+      company_name VARCHAR(500),
+      investigation_type VARCHAR(50) DEFAULT 'competitive',
+      strategy_config JSONB DEFAULT '{}',
+      status VARCHAR(50) DEFAULT 'queued',
+      confidence_score DECIMAL(3,2),
+      vitality_score INTEGER,
+      moat_score INTEGER,
+      risk_score INTEGER,
+      red_flags JSONB DEFAULT '[]',
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      total_cost_usd DECIMAL(10,4),
+      total_tokens INTEGER,
+      duration_ms INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_investigations_user ON investigations(user_id);
+    CREATE INDEX IF NOT EXISTS idx_investigations_status ON investigations(status);
+    CREATE TABLE IF NOT EXISTS reports (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      investigation_id UUID REFERENCES investigations(id) ON DELETE CASCADE,
+      executive_summary TEXT,
+      bull_thesis TEXT,
+      bear_thesis TEXT,
+      skeptic_analysis TEXT,
+      final_verdict TEXT,
+      red_flag_matrix JSONB DEFAULT '[]',
+      moat_analysis JSONB DEFAULT '{}',
+      scenarios JSONB DEFAULT '{}',
+      comparable_cos JSONB DEFAULT '[]',
+      recommendations JSONB DEFAULT '[]',
+      raw_markdown TEXT,
+      pdf_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS agent_logs (
+      id BIGSERIAL PRIMARY KEY,
+      investigation_id UUID REFERENCES investigations(id) ON DELETE CASCADE,
+      agent_type VARCHAR(100) NOT NULL,
+      event_type VARCHAR(100) NOT NULL,
+      current_action TEXT,
+      confidence DECIMAL(3,2),
+      evidence_count INTEGER DEFAULT 0,
+      tokens_used INTEGER,
+      latency_ms INTEGER,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    INSERT INTO users (id, email, name, tier) VALUES 
+      ('00000000-0000-0000-0000-000000000000', 'demo@aegis.ai', 'Demo User', 'starter') 
+      ON CONFLICT (id) DO NOTHING;

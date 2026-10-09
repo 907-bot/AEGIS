@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
   Clock, Zap, BarChart3, Network, FileText, ChevronDown, ChevronUp,
   Target, Globe, Users, Code2, Newspaper, Scale, Swords, RefreshCw,
-  Download, FileDown, Loader2
+  Download, FileDown, Loader2, Share2
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -54,6 +54,7 @@ type InvestigationData = {
 };
 
 export default function InvestigationClient() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const id = searchParams.get('id') || '';
   const [inv, setInv]           = useState<InvestigationData | null>(null);
@@ -101,14 +102,18 @@ export default function InvestigationClient() {
   const retryInvestigation = async () => {
     if (!inv) return;
     try {
-      await api.post('/api/v1/investigations', {
+      const res = await api.post('/api/v1/investigations', {
         url: inv.target_url,
         type: inv.investigation_type || 'competitive',
       });
       toast.success('Investigation re-launched');
-      startTimeRef.current = Date.now();
-      setStuck(false);
-      setPolling(true);
+      if (res.data?.investigationId && res.data.investigationId !== id) {
+        router.push(`/investigation?id=${res.data.investigationId}`);
+      } else {
+        startTimeRef.current = Date.now();
+        setStuck(false);
+        setPolling(true);
+      }
     } catch {
       toast.error('Failed to re-launch');
     }
@@ -150,6 +155,45 @@ export default function InvestigationClient() {
       toast.success('Markdown downloaded');
     } catch {
       toast.error('Failed to download markdown.');
+    }
+  };
+
+  const sharePDF = async () => {
+    if (!inv || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const res = await api.get(`/api/v1/reports/${inv.id}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const filename = `aegis-report-${(inv.company_name || inv.id).toLowerCase().replace(/\s+/g, '-')}.pdf`;
+
+      // Try Web Share API first (AirDrop, Bluetooth, nearby sharing, etc.)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        const shareData = { files: [file], title: `AEGIS Report: ${inv.company_name || inv.id}` };
+        if (navigator.canShare(shareData)) {
+          await navigator.share(shareData);
+          toast.success('Shared successfully');
+          setPdfLoading(false);
+          return;
+        }
+      }
+
+      // Fallback: download the PDF
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('PDF downloaded (share not supported on this device)');
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        toast.error('Share failed. Try again.');
+      }
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -243,6 +287,20 @@ export default function InvestigationClient() {
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     : <Download className="w-3.5 h-3.5" />}
                   <span className="hidden sm:inline">{pdfLoading ? 'Generating…' : 'PDF'}</span>
+                </button>
+                <button
+                  id="btn-share-pdf"
+                  onClick={sharePDF}
+                  disabled={pdfLoading}
+                  title="Share PDF (AirDrop, Bluetooth, etc.)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                             text-slate-300 bg-slate-800 border border-slate-700
+                             hover:bg-slate-700 hover:border-slate-600 hover:text-white
+                             disabled:opacity-60 disabled:cursor-not-allowed
+                             transition-all duration-150"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Share</span>
                 </button>
               </>
             )}

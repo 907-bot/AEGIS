@@ -19,6 +19,9 @@ def get_redis() -> aioredis.Redis:
     return _redis
 
 async def publish_event(investigation_id: str, event: dict) -> None:
-    redis = get_redis()
-    channel = f"investigation:{investigation_id}:events"
-    await redis.publish(channel, json.dumps(event))
+    try:
+        redis = get_redis()
+        channel = f"investigation:{investigation_id}:events"
+        await redis.publish(channel, json.dumps(event))
+    except Exception:
+        pass

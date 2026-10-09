@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS reports (
   recommendations   JSONB DEFAULT '[]',
   raw_markdown      TEXT,
   pdf_url           TEXT,
+  metadata          JSONB DEFAULT '{}',
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -95,7 +96,7 @@ CREATE TABLE IF NOT EXISTS experiences (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   investigation_id UUID REFERENCES investigations(id) ON DELETE SET NULL,
   task_type        VARCHAR(100) NOT NULL,
-  input_embedding  vector(1536),  -- OpenAI text-embedding-3-small dimension
+  input_embedding  vector(768),
   input_text       TEXT,
   reasoning        TEXT,
   output           JSONB,
@@ -172,6 +173,8 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER users_updated_at
   BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-- -    % % %  D e f a u l t   D a t a    % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
- I N S E R T   I N T O   u s e r s   ( i d ,   e m a i l ,   n a m e ,   t i e r )   V A L U E S   ( ' 0 0 0 0 0 0 0 0 - 0 0 0 0 - 0 0 0 0 - 0 0 0 0 - 0 0 0 0 0 0 0 0 0 0 0 0 ' ,   ' d e m o @ a e g i s . a i ' ,   ' D e m o   U s e r ' ,   ' s t a r t e r ' )   O N   C O N F L I C T   ( i d )   D O   N O T H I N G ;  
- 
+
+-- ─── Default Data ──────────────────────────────────────────────────────────────
+INSERT INTO users (id, email, name, tier) VALUES
+  ('00000000-0000-0000-0000-000000000000', 'demo@aegis.ai', 'Demo User', 'starter')
+  ON CONFLICT (id) DO NOTHING;

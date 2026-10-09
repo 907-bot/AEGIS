@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import structlog
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -32,11 +33,11 @@ from utils.llm_router import LLMRouter, TaskType
 from utils.db import get_db_pool
 from utils.metrics import INVESTIGATIONS_TOTAL, INVESTIGATION_DURATION, AGENT_ERRORS
 
-logger = logging.getLogger("aegis.worker")
+logger = structlog.get_logger("aegis.worker")
 
 # ─── Environment ─────────────────────────────────────────────────────────────
-REDIS_URL = os.environ["REDIS_URL"]
-DATABASE_URL = os.environ["DATABASE_URL"]
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/aegis")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -219,12 +220,10 @@ async def run_investigation(
 
         # ── Phase 4: Report Generation ────────────────────────────────────
         workflow = InvestigationWorkflow(llm_router)
-        # Include metadata about failed agents so the report can surface missing inputs
         try:
             report = await workflow.generate_report(investigation_id, url, debate_result, valid_results)
         except Exception as e:
             logger.error(f"[{investigation_id}] Report generation failed: {e}")
-            # Build a minimal fallback report using available agent findings
             exec_sum_lines = []
             for r in valid_results:
                 try:
@@ -252,6 +251,15 @@ async def run_investigation(
                 "raw_markdown": "\n\n".join(exec_sum_lines)[:10000],
                 "note": f"Report generation failed and a fallback report was created: {str(e)}",
             }
+
+        # Merge ALL agent data into report so PDF can access full context
+        for agent_result in valid_results:
+            if agent_result.get("status") == "completed":
+                agent_data = agent_result.get("data") or {}
+                for k, v in agent_data.items():
+                    if k not in report or report[k] is None or report[k] == "" or report[k] == {} or report[k] == []:
+                        report[k] = v
+
         if failed_agents:
             # attach failure information to the report and its markdown
             report.setdefault("failed_agents", failed_agents)
@@ -262,39 +270,23 @@ async def run_investigation(
             except Exception:
                 pass
 
-        # Attempt to render a PDF version of the report (best-effort)
-        try:
-            import os
-            os.makedirs("reports", exist_ok=True)
-            pdf_path = os.path.join("reports", f"{investigation_id}.pdf")
-            try:
-                # Defer importing heavy dependency until runtime so startup isn't blocked if not installed
-                from reportlab.platypus import SimpleDocTemplate, Preformatted
-                from reportlab.lib.pagesizes import letter
-                from reportlab.lib.styles import getSampleStyleSheet
-
-                doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-                styles = getSampleStyleSheet()
-                pre = Preformatted(report.get("raw_markdown", ""), styles.get("Code", styles["Normal"]))
-                doc.build([pre])
-                report["pdf_path"] = pdf_path
-                logger.info(f"[{investigation_id}] PDF report written to {pdf_path}")
-            except Exception as e:
-                logger.warning(f"[{investigation_id}] PDF generation failed: {e}")
-        except Exception as e:
-            logger.warning(f"[{investigation_id}] Could not create reports directory: {e}")
-
         # ── Phase 5: Persist Report ────────────────────────────────────────
         duration_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
         total_tokens = sum(r.get("tokens_used", 0) for r in valid_results if isinstance(r, dict))
         cost_usd = total_tokens * 0.000002  # ~$0.002 per 1K tokens avg
 
+        # Build metadata dict from all merged report data
+        metadata = {k: v for k, v in report.items()
+                    if k not in ("executive_summary", "bull_thesis", "bear_thesis",
+                                 "skeptic_analysis", "final_verdict", "red_flag_matrix",
+                                 "moat_analysis", "scenarios", "recommendations", "raw_markdown")}
+
         await db.execute(
             """INSERT INTO reports(
                  investigation_id, executive_summary, bull_thesis, bear_thesis,
                  skeptic_analysis, final_verdict, red_flag_matrix, moat_analysis,
-                 scenarios, recommendations, raw_markdown
-               ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11)
+                 scenarios, recommendations, raw_markdown, metadata
+               ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12::jsonb)
                ON CONFLICT (investigation_id) DO UPDATE SET
                  executive_summary=EXCLUDED.executive_summary,
                  bull_thesis=EXCLUDED.bull_thesis,
@@ -305,18 +297,20 @@ async def run_investigation(
                  moat_analysis=EXCLUDED.moat_analysis,
                  scenarios=EXCLUDED.scenarios,
                  recommendations=EXCLUDED.recommendations,
-                 raw_markdown=EXCLUDED.raw_markdown""",
+                 raw_markdown=EXCLUDED.raw_markdown,
+                 metadata=EXCLUDED.metadata""",
             investigation_id,
             report.get("executive_summary", ""),
             report.get("bull_thesis", ""),
             report.get("bear_thesis", ""),
             report.get("skeptic_analysis", ""),
             report.get("final_verdict", ""),
-            report.get("red_flag_matrix", "[]"),
-            report.get("moat_analysis", "{}"),
-            report.get("scenarios", "{}"),
-            report.get("recommendations", "[]"),
+            json.dumps(report.get("red_flag_matrix", [])),
+            json.dumps(report.get("moat_analysis", {})),
+            json.dumps(report.get("scenarios", {})),
+            json.dumps(report.get("recommendations", [])),
             report.get("raw_markdown", ""),
+            json.dumps(metadata, default=str),
         )
 
         await update_investigation(
@@ -393,8 +387,11 @@ async def run_investigation(
 async def startup(ctx: dict):
     """Called once when the ARQ worker boots. Set up shared Redis + DB pool."""
     ctx["redis"] = aioredis.from_url(REDIS_URL, decode_responses=True)
-    await get_db_pool()  # initialize the shared pool
-    logger.info("✅ ARQ Worker started — DB pool and Redis connected")
+    try:
+        await get_db_pool()  # initialize the shared pool
+        logger.info("✅ ARQ Worker started — DB pool and Redis connected")
+    except Exception as e:
+        logger.error(f"❌ ARQ Worker DB connection error on startup: {e}")
 
     # Lightweight LLM startup probe: try a minimal completion to validate provider reachability and auth.
     try:

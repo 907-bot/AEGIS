@@ -20,17 +20,18 @@ press releases). You think like a forensic accountant. Return ONLY valid TOON.""
 
         await self._emit_event(investigation_id, "in_progress", "Gathering financial signals...")
 
-        # Gather multiple data sources in parallel
         results = await asyncio.gather(
             self._scrape_careers(url),
             self._scrape_pricing(url),
             self._check_linkedin_headcount(domain),
+            self._scrape_crunchbase(domain),
             return_exceptions=True
         )
 
         careers_data  = results[0] if not isinstance(results[0], Exception) else {}
         pricing_data  = results[1] if not isinstance(results[1], Exception) else {}
         linkedin_data = results[2] if not isinstance(results[2], Exception) else {}
+        cb_data       = results[3] if not isinstance(results[3], Exception) else {}
 
         few_shot = await self._few_shot_prompt("financial_analysis", domain)
         prompt = f"""Analyse financial signals for {url}.
@@ -38,11 +39,17 @@ press releases). You think like a forensic accountant. Return ONLY valid TOON.""
 Careers Page Data: {careers_data}
 Pricing Page Data: {pricing_data}
 LinkedIn Headcount Signals: {linkedin_data}
+Market Data: {cb_data}
 {few_shot}
 
 Return TOON:
 revenue_stage: pre-revenue|<$1M|$1-10M|$10-50M|$50-100M|$100M+
 revenue_estimate_inr: "rough estimate in INR crores or 'unknown'"
+valuation: "estimated valuation in USD"
+valuation_currency: "USD"
+total_raised: "total funding raised if known"
+funding_stage: "seed|series_a|series_b|series_c|series_d|public|unknown"
+recent_funding_round: "most recent round details"
 hiring_velocity: aggressive|steady|slow|frozen|shrinking
 total_open_roles: 12
 engineering_ratio: 30
@@ -54,6 +61,8 @@ pricing_transparency: public|gated|enterprise_only|unknown
 price_points[1]: "$10/mo"
 revenue_model: subscription|usage|transaction|advertising|services
 growth_signals[1]: "increasing headcount"
+market_trends[1]: "growing market segment"
+future_outlook[1]: "expected growth rate"
 risk_signals[1]: "high engineering turnover"
 financial_health_score: 75
 confidence: 0.8
@@ -85,10 +94,8 @@ confidence: 0.8
             content = await self.scraper.scrape(url)
             if content and len(content.get("text", "")) > 200:
                 text = content["text"][:5000]
-                # Count job listings
                 import re
-                job_count = len(re.findall(r'(?:engineer|developer|manager|designer|analyst)',
-                                           text, re.I))
+                job_count = len(re.findall(r'(?:engineer|developer|manager|designer|analyst)', text, re.I))
                 return {"url": url, "text_preview": text[:500], "approx_job_count": job_count}
         return {"url": None, "approx_job_count": 0}
 
@@ -98,10 +105,19 @@ confidence: 0.8
         if content:
             text = content.get("text", "")
             import re
-            prices = re.findall(r'(?:Rs\.?|₹|\$|USD|INR)\s*[\d,]+', text)
+            prices = re.findall(r'(?:Rs\.?|₹|\$|€|£|¥|USD|EUR|GBP|INR|JPY|AUD|CAD|CHF|BRL|SGD|SEK|kr)\s*[\d,.]+', text)
             return {"url": url, "prices_found": prices[:10], "text_preview": text[:300]}
         return {"url": url, "prices_found": []}
 
     async def _check_linkedin_headcount(self, domain: str) -> dict:
-        # Publicly infer from domain — not direct LinkedIn scraping
         return {"domain": domain, "signal": "headcount_inference_from_job_board"}
+
+    async def _scrape_crunchbase(self, domain: str) -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(f"https://www.crunchbase.com/organization/{domain.split('.')[0]}", follow_redirects=True)
+                if resp.status_code == 200:
+                    return {"url": resp.url, "found": True, "text_preview": resp.text[:1000]}
+        except Exception:
+            pass
+        return {"found": False}

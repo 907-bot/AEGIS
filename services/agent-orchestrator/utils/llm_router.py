@@ -1,7 +1,7 @@
 """
-AEGIS LLM Router — Groq Multi-Model Routing
-Routes requests to Groq API (free tier, LPU-accelerated, OpenAI-compatible).
-Groq free tier: 14,400 req/day, 30 RPM — zero cost, zero DNS issues on Render.
+AEGIS LLM Router — Multi-Provider Routing with Health Awareness & Retries
+Routes requests through Groq → OpenRouter → OpenAI → Ollama with per-provider
+timeouts, exponential backoff, and health-aware provider skipping.
 """
 from __future__ import annotations
 
@@ -19,17 +19,38 @@ import structlog
 log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
-# Groq API settings
+# Cloud API settings
 # ---------------------------------------------------------------------------
 GROQ_API_URL  = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL    = "llama-3.1-8b-instant"   # Free, very fast, 128k context
-# Optional OpenAI fallback (used when GROQ_API_KEY is not set)
+GROQ_MODEL    = "llama-3.1-8b-instant"
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
-# Jina AI free embedding endpoint (no key needed for small volumes)
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Jina AI free embedding endpoint
 JINA_EMBED_URL = "https://api.jina.ai/v1/embeddings"
 JINA_MODEL     = "jina-embeddings-v2-base-en"
+
+# ---------------------------------------------------------------------------
+# Local LLM settings
+# ---------------------------------------------------------------------------
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1/chat/completions")
+OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "gemma4:latest")
+
+# Per-provider timeout budgets (seconds)
+PROVIDER_TIMEOUTS: dict[str, float] = {
+    "groq":      60.0,
+    "openrouter": 30.0,
+    "openai":    60.0,
+    "ollama":   120.0,
+}
+
+# How long (seconds) to wait before retrying a provider that was marked unavailable
+PROVIDER_COOLDOWN = 60.0
+
+# Max errors before marking provider unavailable
+MAX_PROVIDER_ERRORS = 5
 
 
 class TaskType(str, Enum):
@@ -74,34 +95,22 @@ class LLMRouter:
         temperature: float = 0.7,
         response_format: Optional[str] = None,
     ) -> ModelResponse:
-        try:
-            start = time.monotonic()
-            response = await self._call(system, prompt, max_tokens, temperature, response_format)
-            latency = int((time.monotonic() - start) * 1000)
+        start = time.monotonic()
+        response = await self._call(system, prompt, max_tokens, temperature, response_format)
+        latency = int((time.monotonic() - start) * 1000)
 
-            model_key = response.model
-            h = self._health(model_key)
-            h["avg_latency"] = h["avg_latency"] * 0.9 + latency * 0.1
-            h["error_count"] = max(0, h["error_count"] - 1)
+        model_key = response.model
+        h = self._health(model_key)
+        h["avg_latency"] = h["avg_latency"] * 0.9 + latency * 0.1
+        h["error_count"] = max(0, h["error_count"] - 1)
 
-            log.info("llm_call_success", model=model_key,
-                     tokens=response.input_tokens + response.output_tokens,
-                     latency_ms=latency)
-            return response
-
-        except Exception as exc:
-            # Determine which provider/model to attribute the error to
-            model_key = GROQ_MODEL if os.getenv("GROQ_API_KEY", "") else OPENAI_MODEL
-            h = self._health(model_key)
-            h["error_count"] += 1
-            h["last_error"] = time.time()
-            if h["error_count"] > 5:
-                h["is_available"] = False
-            log.error("llm_call_failed", model=model_key, error=str(exc))
-            raise
+        log.info("llm_call_success", model=model_key,
+                 tokens=response.input_tokens + response.output_tokens,
+                 latency_ms=latency)
+        return response
 
     # ------------------------------------------------------------------
-    # Internal: _call()  — Groq chat-completions endpoint
+    # Internal: _call()  — Multi-provider routing with health awareness
     # ------------------------------------------------------------------
     async def _call(
         self,
@@ -113,129 +122,194 @@ class LLMRouter:
     ) -> ModelResponse:
         start = time.monotonic()
 
-        # Append format hint to the user message
         if response_format == "json":
             prompt += "\n\nRespond with valid JSON only. No markdown fences."
         elif response_format == "toon":
             prompt += "\n\nRespond with valid TOON (Token-Oriented Object Notation) only."
 
+        providers = self._build_providers()
+        if not providers:
+            raise RuntimeError(
+                "No LLM provider configured: set GROQ_API_KEY, OPENROUTER_API_KEY, "
+                "OPENAI_API_KEY or OLLAMA_API_URL in the environment"
+            )
+
+        async with self._semaphore:
+            for prov in providers:
+                provider = prov["name"]
+
+                # Health check: skip providers that have been failing recently
+                h = self._health(provider)
+                if not h["is_available"]:
+                    since_last_error = time.time() - h["last_error"]
+                    if since_last_error < PROVIDER_COOLDOWN:
+                        log.info("llm_skip_unavailable", provider=provider,
+                                 cooldown_remaining=PROVIDER_COOLDOWN - since_last_error)
+                        continue
+                    else:
+                        h["is_available"] = True
+                        h["error_count"] = 0
+                        log.info("llm_retry_provider", provider=provider)
+
+                timeout = PROVIDER_TIMEOUTS.get(provider, 60.0)
+                url = prov["url"]
+                api_key = prov["key"]
+                model_candidates = prov.get("models", [])
+                last_error: Optional[str] = None
+
+                # Attempt each model for this provider
+                for model_for_provider in model_candidates:
+                    result, err = await self._try_model(
+                        provider=provider,
+                        url=url,
+                        api_key=api_key,
+                        model=model_for_provider,
+                        system=system,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        response_format=response_format,
+                        timeout=timeout,
+                        attempt_count=2,
+                        start=start,
+                    )
+                    if result is not None:
+                        return result
+                    last_error = err
+
+                # All models for this provider failed
+                h = self._health(provider)
+                h["error_count"] += 1
+                h["last_error"] = time.time()
+                if h["error_count"] >= MAX_PROVIDER_ERRORS:
+                    h["is_available"] = False
+                log.warning("llm_provider_exhausted", provider=provider,
+                            error=last_error, error_count=h["error_count"])
+
+        raise RuntimeError("All configured LLM providers failed after retries")
+
+    # ------------------------------------------------------------------
+    # _try_model() — Single model attempt with retries
+    # ------------------------------------------------------------------
+    async def _try_model(
+        self,
+        provider: str,
+        url: str,
+        api_key: str,
+        model: str,
+        system: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        response_format: Optional[str],
+        timeout: float,
+        attempt_count: int,
+        start: float,
+    ) -> tuple[Optional[ModelResponse], Optional[str]]:
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        if provider == "openrouter":
+            headers["HTTP-Referer"] = "https://aegis.ai"
+            headers["X-Title"] = "AEGIS Intelligence"
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if provider == "groq" and response_format == "json":
+            payload["response_format"] = {"type": "json_object"}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            for attempt in range(attempt_count):
+                try:
+                    resp = await client.post(url, headers=headers, json=payload)
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+
+                        if response_format == "toon" and "confidence" not in content:
+                            log.warning("llm_toon_validation_failed", provider=provider, model=model)
+                            raise RuntimeError("TOON validation failed")
+
+                        usage = data.get("usage", {})
+                        latency = int((time.monotonic() - start) * 1000)
+                        return ModelResponse(
+                            content=content,
+                            model=model,
+                            input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
+                            output_tokens=usage.get("completion_tokens", len(content) // 4),
+                            latency_ms=latency,
+                            cost_usd=0.0,
+                        ), None
+
+                    if resp.status_code == 429:
+                        retry_after = float(resp.headers.get("retry-after", "5"))
+                        jitter = random.uniform(0.5, 1.5)
+                        log.warning("llm_rate_limited", provider=provider, model=model,
+                                    retry_after=retry_after, attempt=attempt)
+                        if retry_after > 10.0:
+                            # Do not block the pipeline for long rate-limit windows; fail over to next model candidate
+                            return None, f"429 rate limit exceeded ({retry_after}s) on {provider}/{model}"
+                        await asyncio.sleep(retry_after + jitter)
+                        continue
+
+                    # Non-200, non-429: raise_for_status to trigger retry
+                    resp.raise_for_status()
+
+                except httpx.ConnectError as e:
+                    backoff = (2 ** attempt) + random.uniform(0.2, 1.0)
+                    log.error("llm_connect_error", provider=provider, model=model,
+                              attempt=attempt, backoff=backoff, error=str(e))
+                    await asyncio.sleep(backoff)
+                    continue
+
+                except httpx.TimeoutException as e:
+                    backoff = (2 ** attempt) + random.uniform(0.2, 1.0)
+                    log.error("llm_timeout", provider=provider, model=model,
+                              attempt=attempt, timeout=timeout, error=str(e))
+                    await asyncio.sleep(backoff)
+                    continue
+
+                except Exception as e:
+                    log.error("llm_provider_error", provider=provider, model=model,
+                              attempt=attempt, error=str(e))
+                    await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
+                    continue
+
+        return None, f"{provider}/{model} failed after {attempt_count} attempts"
+
+    # ------------------------------------------------------------------
+    # _build_providers() — Build provider list from env
+    # ------------------------------------------------------------------
+    def _build_providers(self) -> list[dict[str, Any]]:
+        providers: list[dict[str, Any]] = []
+
         groq_key = os.getenv("GROQ_API_KEY", "")
         openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
         openai_key = os.getenv("OPENAI_API_KEY", "")
+        ollama_url = os.getenv("OLLAMA_API_URL", "")
 
-        # Build providers list in preferred order
-        providers: list[dict[str, Any]] = []
-        # Allow configuring multiple candidate models per provider via env vars (comma-separated)
-        # e.g. GROQ_MODELS=llama-3.1-8b-instant,llama-3.1-70b
         if groq_key:
-            groq_models = [m.strip() for m in os.getenv("GROQ_MODELS", GROQ_MODEL).split(",") if m.strip()]
-            providers.append({"name": "groq", "url": GROQ_API_URL, "key": groq_key, "models": groq_models})
+            models = [m.strip() for m in os.getenv("GROQ_MODELS", GROQ_MODEL).split(",") if m.strip()]
+            providers.append({"name": "groq", "url": GROQ_API_URL, "key": groq_key, "models": models})
         if openrouter_key:
-            or_models = [m.strip() for m in os.getenv("OPENROUTER_MODELS", os.getenv("OPENROUTER_MODEL", OPENAI_MODEL)).split(",") if m.strip()]
-            providers.append({"name": "openrouter", "url": "https://api.openrouter.ai/v1/chat/completions", "key": openrouter_key, "models": or_models})
+            models = [m.strip() for m in os.getenv("OPENROUTER_MODELS", os.getenv("OPENROUTER_MODEL", OPENAI_MODEL)).split(",") if m.strip()]
+            providers.append({"name": "openrouter", "url": OPENROUTER_API_URL, "key": openrouter_key, "models": models})
         if openai_key:
-            openai_models = [m.strip() for m in os.getenv("OPENAI_MODELS", OPENAI_MODEL).split(",") if m.strip()]
-            providers.append({"name": "openai", "url": OPENAI_API_URL, "key": openai_key, "models": openai_models})
+            models = [m.strip() for m in os.getenv("OPENAI_MODELS", OPENAI_MODEL).split(",") if m.strip()]
+            providers.append({"name": "openai", "url": OPENAI_API_URL, "key": openai_key, "models": models})
+        if ollama_url:
+            models = [m.strip() for m in os.getenv("OLLAMA_MODELS", os.getenv("OLLAMA_MODEL", OLLAMA_MODEL)).split(",") if m.strip()]
+            providers.append({"name": "ollama", "url": ollama_url, "key": "", "models": models})
 
-        if not providers:
-            raise RuntimeError("No LLM provider configured: set GROQ_API_KEY, OPENROUTER_API_KEY or OPENAI_API_KEY in the environment")
-
-        content = ""
-        # Try providers sequentially; each provider gets a small retry loop before moving to next
-        async with self._semaphore:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                for prov in providers:
-                    provider = prov["name"]
-                    url = prov["url"]
-                    api_key = prov["key"]
-                    model_candidates = prov.get("models", [prov.get("model")])
-
-                    # Try each model candidate for this provider in order
-                    for model_for_provider in model_candidates:
-
-                        # Try common header styles: Authorization Bearer (default), then x-api-key
-                        header_variants = [
-                            {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                            {"Content-Type": "application/json", "x-api-key": api_key},
-                            {"Content-Type": "application/json", "Authorization": api_key},
-                        ]
-
-                        payload: dict[str, Any] = {
-                            "model":       model_for_provider,
-                            "messages":    [
-                                {"role": "system", "content": system},
-                                {"role": "user",   "content": prompt},
-                            ],
-                            "max_tokens":  max_tokens,
-                            "temperature": temperature,
-                        }
-
-                        # Groq supports native JSON mode via response_format
-                        if provider == "groq" and response_format == "json":
-                            payload["response_format"] = {"type": "json_object"}
-
-                        # Per-model attempt loop
-                        for attempt in range(3):
-                            # rotate through header variants to handle providers that expect different header names
-                            hv = header_variants[attempt % len(header_variants)]
-                            try:
-                                # update payload model for this attempt
-                                payload["model"] = model_for_provider
-                                resp = await client.post(url, headers=hv, json=payload)
-
-                                if resp.status_code == 200:
-                                    data = resp.json()
-                                    content = data["choices"][0]["message"]["content"]
-
-                                    # If caller requested TOON, do a light validation that response looks like TOON.
-                                    if response_format == "toon":
-                                        # Expect at least a 'confidence' field in TOON outputs (common in our templates).
-                                        if "confidence" not in content:
-                                            log.warning("llm_toon_validation_failed", provider=provider, model=model_for_provider)
-                                            # treat as provider failure and try next attempt/provider
-                                            raise RuntimeError("TOON validation failed")
-
-                                    usage = data.get("usage", {})
-                                    latency = int((time.monotonic() - start) * 1000)
-                                    return ModelResponse(
-                                        content=content,
-                                        model=model_for_provider,
-                                        input_tokens=usage.get("prompt_tokens", len(system + prompt) // 4),
-                                        output_tokens=usage.get("completion_tokens", len(content) // 4),
-                                        latency_ms=latency,
-                                        cost_usd=0.0,
-                                    )
-
-                                elif resp.status_code == 429:
-                                    retry_after = float(resp.headers.get("retry-after", "5")) + random.uniform(0.5, 2.0)
-                                    log.warning("llm_rate_limited", provider=provider, retry_after=retry_after)
-                                    await asyncio.sleep(retry_after)
-                                    continue
-
-                                else:
-                                    # For non-200/429 status, try again a couple times then move to next provider
-                                    log.warning("llm_unexpected_status", provider=provider, status=resp.status_code)
-                                    resp.raise_for_status()
-
-                            except httpx.ConnectError as e:
-                                log.error("llm_connect_error", provider=provider, attempt=attempt, error=str(e))
-                                # short backoff before retrying same provider
-                                await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
-                                continue
-
-                            except Exception as e:
-                                # Log model-level provider errors and continue trying other models for the same provider
-                                log.error("llm_provider_error", provider=provider, model=model_for_provider, attempt=attempt, error=str(e))
-                                await asyncio.sleep(1.0 + random.uniform(0.2, 1.0))
-                                continue
-
-                        # If we reach here, this model exhausted attempts — try next model
-                        log.warning("llm_model_unavailable", provider=provider, model=model_for_provider)
-                    # finished iterating models for this provider; if none succeeded, move to next provider
-                    log.warning("llm_provider_unavailable", provider=provider)
-
-        # All providers exhausted
-        raise RuntimeError("All configured LLM providers failed after retries")
+        return providers
 
     # ------------------------------------------------------------------
     # Public: embed()  — Jina AI free embeddings

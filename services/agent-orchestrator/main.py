@@ -17,14 +17,15 @@ import uvicorn
 from dotenv import load_dotenv
 from arq import create_pool
 from arq.connections import RedisSettings
-from arq.worker import Worker
-from worker import WorkerSettings
 
-# Load environment variables
+# Load environment variables BEFORE importing worker (which reads REDIS_URL/DATABASE_URL at module level)
 python_env = os.getenv("PYTHON_ENV", "development")
 if python_env != "production":
     load_dotenv(".env")
     load_dotenv("../../.env")
+
+from arq.worker import Worker
+from worker import WorkerSettings
 
 # Debug Environment (Safe)
 redis_url = os.getenv("REDIS_URL", "not set")
@@ -41,6 +42,8 @@ from starlette.responses import Response
 
 from utils.redis_client import init_redis, get_redis
 from utils.metrics import INVESTIGATIONS_TOTAL
+from utils.db import get_db_pool
+from utils.llm_router import LLMRouter
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 log = structlog.get_logger()
@@ -50,22 +53,28 @@ arq_pool:          Optional[Any]              = None  # ARQ Redis pool
 arq_worker_task:   Optional[asyncio.Task]     = None
 
 async def run_arq_worker():
-    """Run ARQ worker in background."""
+    """Run ARQ worker in background with auto-restart."""
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-    worker = Worker(
-        functions=WorkerSettings.functions,
-        on_startup=WorkerSettings.on_startup,
-        on_shutdown=WorkerSettings.on_shutdown,
-        redis_settings=RedisSettings.from_dsn(redis_url),
-        max_jobs=WorkerSettings.max_jobs,
-        job_timeout=WorkerSettings.job_timeout,
-        keep_result=WorkerSettings.keep_result,
-    )
-    log.info("✅ ARQ Worker starting in background...")
-    try:
-        await worker.main()
-    except Exception as e:
-        log.error("❌ ARQ Worker crashed", error=str(e))
+    log.info("✅ ARQ Worker task started")
+    while True:
+        try:
+            worker = Worker(
+                functions=WorkerSettings.functions,
+                on_startup=WorkerSettings.on_startup,
+                on_shutdown=WorkerSettings.on_shutdown,
+                redis_settings=RedisSettings.from_dsn(redis_url),
+                max_jobs=WorkerSettings.max_jobs,
+                job_timeout=WorkerSettings.job_timeout,
+                keep_result=WorkerSettings.keep_result,
+            )
+            log.info("✅ ARQ Worker listening for jobs...")
+            await worker.main()
+        except asyncio.CancelledError:
+            log.info("👋 ARQ Worker task cancelled")
+            break
+        except Exception as e:
+            log.error("❌ ARQ Worker crashed, restarting in 5s...", error=str(e))
+            await asyncio.sleep(5)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -143,7 +152,7 @@ async def root_health():
 
 @app.get("/health")
 async def health():
-    """Health check - verifies Redis connectivity for ARQ."""
+    """Comprehensive health check for Orchestrator, Worker, Redis, DB and LLMs."""
     status = "ok"
     details = {}
 
@@ -158,13 +167,45 @@ async def health():
     # Check ARQ pool
     try:
         if arq_pool:
-            details["arq"] = "ok"
+            details["arq_pool"] = "ok"
         else:
             status = "degraded"
-            details["arq"] = "not initialized"
+            details["arq_pool"] = "not initialized"
     except Exception as e:
         status = "degraded"
-        details["arq"] = str(e)
+        details["arq_pool"] = str(e)
+
+    # Check background worker task
+    if arq_worker_task and not arq_worker_task.done():
+        details["arq_worker"] = "running"
+    else:
+        status = "degraded"
+        details["arq_worker"] = "stopped"
+        if arq_worker_task and arq_worker_task.done() and arq_worker_task.exception():
+            details["arq_worker_error"] = str(arq_worker_task.exception())
+
+    # Check DB pool
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        details["postgres"] = "ok"
+    except Exception as e:
+        status = "degraded"
+        details["postgres"] = str(e)
+
+    # Check LLM configuration
+    try:
+        router = LLMRouter()
+        providers = router._build_providers()
+        details["llm_providers"] = [p["name"] for p in providers]
+        if not providers:
+            status = "degraded"
+            details["llm_status"] = "No providers configured: set GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY"
+        else:
+            details["llm_status"] = f"ok ({len(providers)} provider(s) active)"
+    except Exception as e:
+        details["llm_status"] = str(e)
 
     return {
         "status": status,

@@ -5,7 +5,7 @@ RUN apk add --no-cache dumb-init
 # Dependencies
 FROM base AS deps
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install
 
 # Builder
 FROM base AS builder

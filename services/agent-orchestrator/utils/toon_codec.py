@@ -538,8 +538,9 @@ def extract_toon(text: str) -> dict:
     5. Fall back to trying JSON extraction
     """
     import json
+    import textwrap
 
-    text = text.strip()
+    text = textwrap.dedent(text).strip()
 
     # 1. Try direct TOON parse
     try:

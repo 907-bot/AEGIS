@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',           // Static export for GitHub Pages
-  trailingSlash: true,
-  basePath: '/AEGIS',
+  output: 'standalone',       // Standalone output for Docker
   images: { unoptimized: true },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,

@@ -13,9 +13,14 @@ import redis.asyncio as aioredis
 import uvicorn
 from arq import create_pool
 from arq.connections import RedisSettings
+from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from worker import WorkerSettings, run_investigation, startup, shutdown
+
+# Load environment variables
+load_dotenv(".env")
+load_dotenv("../../.env")
 
 # Global state
 arq_worker_task = None

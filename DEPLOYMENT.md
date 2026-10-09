@@ -234,6 +234,27 @@ cp .env.example .env
 #   Temporal UI:   http://localhost:8080
 ```
 
+### One-command start with Docker (Recommended)
+```bash
+# Clone and setup
+git clone https://github.com/<you>/aegis
+cd aegis
+cp .env.example .env
+# Fill in your API keys in .env
+
+# Start everything using Docker containers
+./deploy-docker.sh deploy
+
+# Services will be at:
+#   Frontend:      http://localhost:3001
+#   API:           http://localhost:3000
+#   Orchestrator:  http://localhost:8001
+#   Go Gateway:    http://localhost:8080
+#   Neo4j Browser: http://localhost:7474
+#   PostgreSQL:    localhost:5432
+#   Redis:         localhost:6379
+```
+
 ### Run services individually
 ```bash
 # API
@@ -267,6 +288,44 @@ go run ./cmd/server
 | `CORS_ORIGIN`           | Render (API)          | `https://<user>.github.io`         |
 | `NEXT_PUBLIC_API_URL`   | GitHub Secret         | `https://aegis-api.onrender.com`   |
 | `NEXT_PUBLIC_WS_URL`    | GitHub Secret         | `wss://aegis-api.onrender.com`     |
+
+### LLM Provider Options (Agent Orchestrator)
+
+AEGIS supports multiple LLM providers with automatic fallback:
+
+1. **Cloud Providers (Recommended for production)**
+   - `GROQ_API_KEY`: <co>Free tier with llama-3.1-8b-instant</co: 30:[0]>
+   - `OPENAI_API_KEY`: GPT-3.5-turbo or GPT-4
+   - `OPENROUTER_API_KEY`: Access to multiple providers via OpenRouter
+
+2. **Local LLM (For development/testing)**
+   - `OLLAMA_API_URL`: Local Ollama instance (e.g., `http://localhost:11434/v1/chat/completions`)
+   - `OLLAMA_MODEL`: Local model (e.g., `gemma4:latest`, `llama3.1:latest`)
+
+**Local Setup Example**:
+```bash
+# Install Ollama and pull gemma4
+# https://ollama.ai/
+# ollama pull gemma4
+
+# In your .env file:
+export OLLAMA_API_URL="http://localhost:11434/v1/chat/completions"
+export OLLAMA_MODEL="gemma4:latest"
+```
+
+**Cloud Setup Example**:
+```bash
+# In your .env file:
+export OPENAI_API_KEY="sk-your-openai-key"
+export GROQ_API_KEY="your-groq-key"
+export OPENROUTER_API_KEY="your-openrouter-key"
+```
+
+**AEGIS will automatically try providers in this order:**
+1. Groq (most cost-effective for free tier)
+2. OpenRouter (wide model selection)
+3. OpenAI (fallback)
+4. Ollama (local, if configured)
 
 ---
 
@@ -316,4 +375,30 @@ playwright install chromium --with-deps
 ```
 ✅ Use neo4j+s:// (TLS) for AuraDB, not bolt://
 ✅ Allow ~30s for AuraDB to wake up if it's been idle
+```
+
+### LLM Provider Issues
+```
+✅ Check API keys are set correctly in your .env file
+✅ Verify network connectivity to LLM providers
+✅ Check Ollama is running locally if using local models
+✅ For cloud providers, check billing status and rate limits
+```
+
+### Using Local Ollama
+```bash
+# Install Ollama
+# https://ollama.ai/
+
+# Pull a local model
+ollama pull gemma4
+
+# Start Ollama server (background)
+ollama serve &
+
+# Set environment variables
+export OLLAMA_API_URL="http://localhost:11434/v1/chat/completions"
+export OLLAMA_MODEL="gemma4:latest"
+
+# Restart Agent Orchestrator to pick up local LLM
 ```

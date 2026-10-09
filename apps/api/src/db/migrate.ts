@@ -17,7 +17,7 @@ async function migrate() {
 
   const pool = new Pool({
     connectionString,
-    ssl: connectionString.includes('neon.tech') || process.env.NODE_ENV === 'production'
+    ssl: (connectionString.includes('neon.tech') || process.env.NODE_ENV === 'production') && process.env.DB_SSL !== 'false'
       ? { rejectUnauthorized: false }
       : false
   });

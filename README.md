@@ -57,6 +57,13 @@ Browser → GitHub Pages (Next.js static)
 ./start-local.bat
 ```
 
+## Quick Start with Docker (Recommended)
+
+```bash
+# Deploy complete AEGIS platform using Docker
+./deploy-docker.sh deploy
+```
+
 Open:
 - **Web Dashboard**: http://localhost:3001
 - **API Docs**: http://localhost:3000/docs

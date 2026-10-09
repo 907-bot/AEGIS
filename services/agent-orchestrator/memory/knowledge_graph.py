@@ -118,37 +118,41 @@ class KnowledgeGraphService:
         if not self._driver:
             return json.dumps({"nodes": [], "edges": []})
         try:
+            nodes: dict[str, dict] = {}
+            edges: list[dict] = []
+
             async with self._driver.session() as session:
                 result = await session.run(
                     """MATCH (c:Company {id: $id})-[r]-(n)
                        RETURN c, r, n LIMIT 50""",
                     id=investigation_id
                 )
-                records = await result.data()
+                async for rec in result:
+                    src = rec.get("c")
+                    rel = rec.get("r")
+                    tgt = rec.get("n")
 
-            nodes: dict[str, dict] = {}
-            edges: list[dict] = []
-
-            for record in records:
-                src = record.get("c", {})
-                rel = record.get("r", {})
-                tgt = record.get("n", {})
-
-                for node in [src, tgt]:
-                    if node and "id" in node:
-                        nodes[node["id"]] = {
-                            "id": node["id"],
-                            "label": node.get("name", node["id"]),
-                            "type": list(node.labels)[0] if hasattr(node, "labels") else "Entity",
+                    for nd in [src, tgt]:
+                        if not nd:
+                            continue
+                        nd_id = nd.get("id")
+                        if not nd_id:
+                            continue
+                        labels = list(nd.labels) if hasattr(nd, "labels") else []
+                        nodes[nd_id] = {
+                            "id":    nd_id,
+                            "label": nd.get("name", nd_id),
+                            "type":  labels[0] if labels else "Entity",
                         }
 
-                if rel:
-                    edges.append({
-                        "source":     investigation_id,
-                        "target":     tgt.get("id", ""),
-                        "label":      type(rel).__name__,
-                        "confidence": rel.get("confidence", 0.5),
-                    })
+                    if rel:
+                        rel_props = dict(rel) if hasattr(rel, "items") else {}
+                        edges.append({
+                            "source":     investigation_id,
+                            "target":     tgt.get("id", "") if tgt else "",
+                            "label":      rel.type if hasattr(rel, "type") else type(rel).__name__,
+                            "confidence": rel_props.get("confidence", 0.5),
+                        })
 
             return json.dumps({"nodes": list(nodes.values()), "edges": edges})
         except Exception as e:

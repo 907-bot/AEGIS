@@ -29,9 +29,6 @@ async function buildApp() {
   const fastify = Fastify({
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      transport: process.env.NODE_ENV !== 'production'
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
     },
   });
 
@@ -46,6 +43,10 @@ async function buildApp() {
         'https://907-bot.github.io',
         'http://localhost:3000',
         'http://localhost:3001',
+        'http://localhost:3004',
+        'http://localhost:3007',
+        'http://localhost:3008',
+        'http://localhost:8080',
       ];
       if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.github.io')) {
         cb(null, true);

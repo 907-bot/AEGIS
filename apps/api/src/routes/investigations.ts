@@ -6,10 +6,27 @@ import { query, queryOne, withTransaction } from '../db/postgres';
 import { getCachedReport, cacheReport } from '../services/redisService';
 
 const CreateSchema = z.object({
-  url: z.string().url(),
+  url: z.string().transform((val) => {
+    let clean = val.trim();
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'https://' + clean;
+    }
+    return clean;
+  }).pipe(z.string().url()),
   type: z.enum(['competitive', 'due_diligence', 'ipo_readiness', 'market_analysis']).default('competitive'),
   strategyOverrides: z.record(z.string()).optional(),
 });
+
+function getOrCreateUserId(headerUserId: string | undefined): string {
+  if (!headerUserId) return '00000000-0000-0000-0000-000000000000';
+  // If it looks like a UUID, use it; otherwise create a deterministic UUID
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(headerUserId)) {
+    return headerUserId;
+  }
+  // Create deterministic UUID from string using md5-like approach (simplified)
+  // For now, just use the default demo user
+  return '00000000-0000-0000-0000-000000000000';
+}
 
 export async function investigationRoutes(fastify: FastifyInstance) {
   // ── POST /api/v1/investigations ─────────────────────────────────────────
@@ -20,16 +37,16 @@ export async function investigationRoutes(fastify: FastifyInstance) {
 
       const { url, type, strategyOverrides } = body.data;
       const strategy_config = strategyOverrides || {};
-      const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
+      const userId = getOrCreateUserId(request.headers['x-user-id'] as string);
 
       const id = uuidv4();
 
       await withTransaction(async (client) => {
-        // Upsert demo user
+        // Ensure user exists - upsert on id (primary key)
         await client.query(
-          `INSERT INTO users(id, email, name) VALUES($1,$2,$3)
+          `INSERT INTO users(id, email, name) VALUES($1, $2, 'Demo User')
            ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
-          [userId, 'demo@aegis.ai', 'Demo User']
+          [userId, `user-${userId.substring(0, 8)}@aegis.local`]
         );
 
         await client.query(
@@ -40,15 +57,24 @@ export async function investigationRoutes(fastify: FastifyInstance) {
       });
 
       // Call Python orchestrator to start the investigation
-      // Render Blueprint sets AGENT_ORCHESTRATOR_URL as bare hostname (no protocol)
-      // from fromService property: host — ensure we add https://
-      let orchestratorUrl = process.env.AGENT_ORCHESTRATOR_URL || 'http://localhost:8001';
+      let orchestratorUrl = process.env.AGENT_ORCHESTRATOR_URL;
+      if (!orchestratorUrl || orchestratorUrl === 'http://localhost:8001' || orchestratorUrl === 'aegis-orchestrator') {
+        if (process.env.NODE_ENV === 'production') {
+          orchestratorUrl = 'https://aegis-orchestrator.onrender.com';
+        } else {
+          orchestratorUrl = 'http://localhost:8001';
+        }
+      }
+      if (orchestratorUrl === 'https://aegis-orchestrator' || orchestratorUrl === 'http://aegis-orchestrator') {
+        orchestratorUrl = 'https://aegis-orchestrator.onrender.com';
+      }
       if (!/^https?:\/\//i.test(orchestratorUrl)) {
         orchestratorUrl = `https://${orchestratorUrl}`;
       }
+
       axios.post(`${orchestratorUrl}/investigate`, {
         investigation_id: id, url, type, user_id: userId,
-      }).then(() => {
+      }, { timeout: 45000 }).then(() => {
         fastify.log.info(`Orchestrator ping succeeded at ${orchestratorUrl}`);
       }).catch((err) => {
         fastify.log.error(`Orchestrator ping failed at ${orchestratorUrl}: ${err.message}`);
@@ -71,7 +97,7 @@ export async function investigationRoutes(fastify: FastifyInstance) {
 
   // ── GET /api/v1/investigations ──────────────────────────────────────────
   fastify.get('/', async (request, reply) => {
-    const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000000';
+    const userId = getOrCreateUserId(request.headers['x-user-id'] as string);
     const rows = await query(
       `SELECT id, target_url, company_name, investigation_type, status,
               confidence_score, vitality_score, moat_score, risk_score,

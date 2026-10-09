@@ -35,13 +35,8 @@ services:
         sync: false
       - key: NEO4J_PASSWORD
         sync: false
-      # NOTE: property: host returns bare hostname (no protocol).
-      # The Node.js code prepends https:// automatically — keep property: host.
-       - key: AGENT_ORCHESTRATOR_URL
-         fromService:
-           name: aegis-orchestrator
-           type: web
-           property: host
+      - key: AGENT_ORCHESTRATOR_URL
+        value: https://aegis-orchestrator.onrender.com
        # Using Hugging Face models (free) - no API keys needed
        # - key: OPENAI_API_KEY
        #   sync: false
@@ -81,6 +76,10 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DB_SSL
+        value: "false"
       - key: SCRAPING_CONCURRENCY
         value: "2"
 
@@ -98,18 +97,10 @@ services:
     envVars:
       - key: GATEWAY_PORT
         value: "8080"
-      # NOTE: property: host returns bare hostname (no protocol).
-      # The Go code prepends https:// automatically — keep property: host.
       - key: API_URL
-        fromService:
-          name: aegis-api
-          type: web
-          property: host
+        value: https://aegis-api-drpr.onrender.com
       - key: ORCHESTRATOR_URL
-        fromService:
-          name: aegis-orchestrator
-          type: web
-          property: host
+        value: https://aegis-orchestrator.onrender.com
       - key: REDIS_URL
         fromService:
           name: aegis-redis

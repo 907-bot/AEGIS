@@ -117,13 +117,28 @@ export async function investigationRoutes(fastify: FastifyInstance) {
     const inv = await queryOne(
       `SELECT i.*, r.executive_summary, r.bull_thesis, r.bear_thesis,
               r.skeptic_analysis, r.final_verdict, r.red_flag_matrix,
-              r.moat_analysis, r.scenarios, r.recommendations
+              r.moat_analysis, r.scenarios, r.recommendations,
+              r.comparable_cos, r.valuation_comps, r.unit_economics,
+              r.traffic_metrics, r.evidence_citations, r.metadata AS report_metadata
        FROM investigations i
        LEFT JOIN reports r ON r.investigation_id = i.id
        WHERE i.id = $1`,
       [id]
     );
     if (!inv) return reply.status(404).send({ error: 'Investigation not found' });
+    // Merge report_metadata if top-level fields are empty
+    if (inv.report_metadata && typeof inv.report_metadata === 'object') {
+      inv.valuation_comps = inv.valuation_comps && inv.valuation_comps.length > 0
+        ? inv.valuation_comps : (inv.report_metadata.valuation_comps || []);
+      inv.unit_economics = inv.unit_economics && Object.keys(inv.unit_economics).length > 0
+        ? inv.unit_economics : (inv.report_metadata.unit_economics || {});
+      inv.traffic_metrics = inv.traffic_metrics && Object.keys(inv.traffic_metrics).length > 0
+        ? inv.traffic_metrics : (inv.report_metadata.traffic_metrics || {});
+      inv.evidence_citations = inv.evidence_citations && inv.evidence_citations.length > 0
+        ? inv.evidence_citations : (inv.report_metadata.evidence_citations || []);
+      inv.comparable_companies = inv.comparable_cos && inv.comparable_cos.length > 0
+        ? inv.comparable_cos : (inv.report_metadata.comparable_companies || []);
+    }
     return reply.send(inv);
   });
 

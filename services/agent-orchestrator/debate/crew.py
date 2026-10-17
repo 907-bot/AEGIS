@@ -187,6 +187,30 @@ Return JSON synthesis:
     "base": {{"probability": 0.5, "outcome": "...", "trigger": "..."}},
     "bear": {{"probability": 0.2, "outcome": "...", "trigger": "..."}}
   }},
+  "valuation_comps": [
+    {{"name": "Peer Name", "ticker": "TICK", "ev_arr": "10.5x", "pe_multiple": "35x", "ev_ebitda": "20x", "implied_valuation": "$300M"}}
+  ],
+  "unit_economics": {{
+    "arr_estimate": "$25M - $35M ARR",
+    "revenue_growth_yoy": 45,
+    "free_cash_flow_margin": -12,
+    "rule_of_40_score": 33,
+    "gross_margin_percent": 74,
+    "net_dollar_retention": 116,
+    "cac_payback_months": 14,
+    "ltv_cac_ratio": 3.6
+  }},
+  "traffic_metrics": {{
+    "monthly_visits": "1.1M visits/mo",
+    "mom_growth_percent": 15.2,
+    "bounce_rate_percent": 41,
+    "avg_session_duration_sec": 195,
+    "organic_search_percent": 77,
+    "top_geographies": ["United States (44%)", "United Kingdom (12%)", "Germany (8%)"]
+  }},
+  "evidence_citations": [
+    {{"claim": "verified claim statement", "source_url": "https://...", "snippet": "evidence snippet from source", "verified": true}}
+  ],
   "recommendations": [
     {{"action": "...", "rationale": "...", "priority": "immediate|short_term|long_term"}}
   ],
@@ -194,7 +218,7 @@ Return JSON synthesis:
   "next_monitoring_triggers": ["what to watch for"]
 }}"""
 
-        resp = await self.llm.complete(TaskType.SYNTHESIS, system, prompt, 3000, 0.4, "json")
+        resp = await self.llm.complete(TaskType.SYNTHESIS, system, prompt, 3500, 0.4, "json")
         data = self._extract_json(resp.content)
         return self._calibrate_synthesis(data)
 

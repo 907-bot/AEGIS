@@ -285,8 +285,10 @@ async def run_investigation(
             """INSERT INTO reports(
                  investigation_id, executive_summary, bull_thesis, bear_thesis,
                  skeptic_analysis, final_verdict, red_flag_matrix, moat_analysis,
-                 scenarios, recommendations, raw_markdown, metadata
-               ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12::jsonb)
+                 scenarios, recommendations, raw_markdown, metadata,
+                 valuation_comps, unit_economics, traffic_metrics, evidence_citations
+               ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12::jsonb,
+                        $13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb)
                ON CONFLICT (investigation_id) DO UPDATE SET
                  executive_summary=EXCLUDED.executive_summary,
                  bull_thesis=EXCLUDED.bull_thesis,
@@ -298,7 +300,11 @@ async def run_investigation(
                  scenarios=EXCLUDED.scenarios,
                  recommendations=EXCLUDED.recommendations,
                  raw_markdown=EXCLUDED.raw_markdown,
-                 metadata=EXCLUDED.metadata""",
+                 metadata=EXCLUDED.metadata,
+                 valuation_comps=EXCLUDED.valuation_comps,
+                 unit_economics=EXCLUDED.unit_economics,
+                 traffic_metrics=EXCLUDED.traffic_metrics,
+                 evidence_citations=EXCLUDED.evidence_citations""",
             investigation_id,
             report.get("executive_summary", ""),
             report.get("bull_thesis", ""),
@@ -311,6 +317,10 @@ async def run_investigation(
             json.dumps(report.get("recommendations", [])),
             report.get("raw_markdown", ""),
             json.dumps(metadata, default=str),
+            json.dumps(report.get("valuation_comps", [])),
+            json.dumps(report.get("unit_economics", {})),
+            json.dumps(report.get("traffic_metrics", {})),
+            json.dumps(report.get("evidence_citations", [])),
         )
 
         await update_investigation(

@@ -6,7 +6,7 @@ import {
   Brain, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
   Clock, Zap, BarChart3, Network, FileText, ChevronDown, ChevronUp,
   Target, Globe, Users, Code2, Newspaper, Scale, Swords, RefreshCw,
-  Download, FileDown, Loader2, Share2
+  Download, FileDown, Loader2, Share2, ExternalLink, DollarSign, Activity
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -51,6 +51,10 @@ type InvestigationData = {
   bear_thesis?: string; skeptic_analysis?: string; final_verdict?: string;
   red_flag_matrix?: any[]; moat_analysis?: any; scenarios?: any;
   recommendations?: any[]; comparable_companies?: string[];
+  valuation_comps?: any[];
+  unit_economics?: any;
+  traffic_metrics?: any;
+  evidence_citations?: any[];
 };
 
 export default function InvestigationClient() {
@@ -459,6 +463,11 @@ export default function InvestigationClient() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function OverviewTab({ inv }: { inv: InvestigationData }) {
+  const comps = inv.valuation_comps || [];
+  const unitEcon = inv.unit_economics;
+  const traffic = inv.traffic_metrics;
+  const citations = inv.evidence_citations || [];
+
   return (
     <div className="space-y-6">
       {/* Executive Summary */}
@@ -468,6 +477,15 @@ function OverviewTab({ inv }: { inv: InvestigationData }) {
           <p className="text-slate-200 leading-relaxed">{inv.executive_summary}</p>
         </div>
       )}
+
+      {/* Real-World Parameters: Unit Economics & Rule of 40 */}
+      {unitEcon && <UnitEconomicsCard unitEcon={unitEcon} />}
+
+      {/* Real-World Parameters: Trading Comps & Valuation Multiples */}
+      {comps.length > 0 && <ValuationCompsCard comps={comps} />}
+
+      {/* Real-World Parameters: Digital Footprint & Web Traffic */}
+      {traffic && <TrafficRadarCard traffic={traffic} />}
 
       {/* Red Flags */}
       {inv.red_flag_matrix && inv.red_flag_matrix.length > 0 && (
@@ -498,6 +516,9 @@ function OverviewTab({ inv }: { inv: InvestigationData }) {
         )}
       </div>
 
+      {/* Real-World Features: Evidence & Source Citation Audit Trail */}
+      {citations.length > 0 && <EvidenceCitationsCard citations={citations} />}
+
       {/* Comparable companies */}
       {inv.comparable_companies && inv.comparable_companies.length > 0 && (
         <div className="card p-5">
@@ -509,6 +530,222 @@ function OverviewTab({ inv }: { inv: InvestigationData }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function UnitEconomicsCard({ unitEcon }: { unitEcon: any }) {
+  const rule40 = Number(unitEcon.rule_of_40_score ?? 0);
+  const rule40Color = rule40 >= 40 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+                      rule40 >= 20 ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                      'text-red-400 bg-red-500/10 border-red-500/30';
+
+  return (
+    <div className="card p-6 border-slate-800">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            SaaS Unit Economics & Rule of 40
+          </h3>
+        </div>
+        <div className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center gap-1.5 ${rule40Color}`}>
+          <span>Rule of 40:</span>
+          <span className="font-bold">{rule40 > 0 ? `+${rule40}` : rule40}%</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">ARR Run-Rate</div>
+          <div className="text-base font-bold text-slate-200 mt-1">{unitEcon.arr_estimate || 'N/A'}</div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">YoY Growth</div>
+          <div className="text-base font-bold text-emerald-400 mt-1">
+            {unitEcon.revenue_growth_yoy ? `+${unitEcon.revenue_growth_yoy}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">FCF Margin</div>
+          <div className={`text-base font-bold mt-1 ${Number(unitEcon.free_cash_flow_margin) >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {unitEcon.free_cash_flow_margin !== undefined ? `${unitEcon.free_cash_flow_margin}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Gross Margin</div>
+          <div className="text-base font-bold text-slate-200 mt-1">
+            {unitEcon.gross_margin_percent ? `${unitEcon.gross_margin_percent}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Net Dollar Retention</div>
+          <div className="text-base font-bold text-cyan-400 mt-1">
+            {unitEcon.net_dollar_retention ? `${unitEcon.net_dollar_retention}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">CAC Payback</div>
+          <div className="text-base font-bold text-slate-200 mt-1">
+            {unitEcon.cac_payback_months ? `${unitEcon.cac_payback_months} mos` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">LTV / CAC Ratio</div>
+          <div className="text-base font-bold text-indigo-400 mt-1">
+            {unitEcon.ltv_cac_ratio ? `${unitEcon.ltv_cac_ratio}x` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Capital Efficiency</div>
+          <div className="text-base font-bold text-emerald-400 mt-1">
+            {rule40 >= 40 ? 'Elite (Top Tier)' : rule40 >= 20 ? 'Standard' : 'Burn Heavy'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ValuationCompsCard({ comps }: { comps: any[] }) {
+  return (
+    <div className="card p-6 border-slate-800">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            Trading Comps & Valuation Multiples
+          </h3>
+        </div>
+        <span className="text-xs text-slate-500">Institutional Benchmarks</span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
+              <th className="py-2.5 px-3">Peer Company</th>
+              <th className="py-2.5 px-3">Ticker</th>
+              <th className="py-2.5 px-3">EV / ARR</th>
+              <th className="py-2.5 px-3">P / E Multiple</th>
+              <th className="py-2.5 px-3">EV / EBITDA</th>
+              <th className="py-2.5 px-3">Implied Valuation</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/60 font-mono">
+            {comps.map((c, i) => (
+              <tr key={i} className="hover:bg-surface-50/50 transition-colors">
+                <td className="py-2.5 px-3 font-sans font-medium text-slate-200">{c.name || 'Peer'}</td>
+                <td className="py-2.5 px-3 text-cyan-400">{c.ticker || 'N/A'}</td>
+                <td className="py-2.5 px-3 text-emerald-400">{c.ev_arr || 'N/A'}</td>
+                <td className="py-2.5 px-3 text-slate-300">{c.pe_multiple || 'N/A'}</td>
+                <td className="py-2.5 px-3 text-slate-300">{c.ev_ebitda || 'N/A'}</td>
+                <td className="py-2.5 px-3 font-semibold text-indigo-300">{c.implied_valuation || 'N/A'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TrafficRadarCard({ traffic }: { traffic: any }) {
+  return (
+    <div className="card p-6 border-slate-800">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            Digital Footprint & Web Traffic Radar
+          </h3>
+        </div>
+        <span className="text-xs text-slate-500">Autonomous Web Signal</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Monthly Traffic</div>
+          <div className="text-base font-bold text-slate-200 mt-1">{traffic.monthly_visits || 'N/A'}</div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">MoM Growth</div>
+          <div className="text-base font-bold text-emerald-400 mt-1">
+            {traffic.mom_growth_percent ? `+${traffic.mom_growth_percent}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Bounce Rate</div>
+          <div className="text-base font-bold text-slate-200 mt-1">
+            {traffic.bounce_rate_percent ? `${traffic.bounce_rate_percent}%` : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-surface/50 p-3 rounded-lg border border-slate-800/80">
+          <div className="text-xs text-slate-500">Avg Duration</div>
+          <div className="text-base font-bold text-cyan-400 mt-1">
+            {traffic.avg_session_duration_sec ? `${traffic.avg_session_duration_sec}s` : 'N/A'}
+          </div>
+        </div>
+      </div>
+
+      {traffic.top_geographies && (
+        <div className="flex flex-wrap items-center gap-2 text-xs pt-1 border-t border-slate-800/80">
+          <span className="text-slate-500">Top Markets:</span>
+          {(Array.isArray(traffic.top_geographies) ? traffic.top_geographies : [traffic.top_geographies]).map((geo: string, idx: number) => (
+            <span key={idx} className="badge badge-neutral text-xs">{geo}</span>
+          ))}
+          {traffic.organic_search_percent && (
+            <span className="badge badge-info text-xs ml-auto">
+              {traffic.organic_search_percent}% Organic Traffic
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceCitationsCard({ citations }: { citations: any[] }) {
+  return (
+    <div className="card p-6 border-slate-800">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            Evidence & Source Citations Audit Trail
+          </h3>
+        </div>
+        <span className="text-xs text-slate-500">{citations.length} verified sources</span>
+      </div>
+
+      <div className="space-y-3">
+        {citations.map((c, i) => (
+          <div key={i} className="p-3 rounded-lg bg-surface/60 border border-slate-800/90 text-xs">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="font-semibold text-slate-200 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <span>{c.claim || 'Verified Data Point'}</span>
+              </div>
+              {c.source_url && (
+                <a
+                  href={c.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-aegis-400 hover:text-aegis-300 flex items-center gap-1 font-mono shrink-0 hover:underline"
+                >
+                  <span>Source</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+            {c.snippet && (
+              <p className="text-slate-400 font-mono text-[11px] leading-relaxed border-l-2 border-slate-700 pl-2.5 my-1">
+                "{c.snippet}"
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

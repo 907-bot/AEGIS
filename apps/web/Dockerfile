@@ -11,8 +11,8 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
-ARG NEXT_PUBLIC_API_URL=http://localhost:3008
-ARG NEXT_PUBLIC_WS_URL=ws://localhost:3008
+ARG NEXT_PUBLIC_API_URL=http://localhost:3000
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:3000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 RUN npm run build
@@ -37,5 +37,6 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 USER nextjs
 EXPOSE 3001
 ENV PORT 3001
+ENV HOSTNAME "0.0.0.0"
 WORKDIR /app
 CMD ["node", "server.js"]
